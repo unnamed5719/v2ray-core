@@ -15,19 +15,19 @@ import (
 	"v2ray.com/core/proxy/dokodemo"
 	"v2ray.com/core/proxy/freedom"
 	"v2ray.com/core/proxy/shadowsocks"
-	"v2ray.com/core/testing/assert"
 	"v2ray.com/core/testing/servers/tcp"
 	"v2ray.com/core/testing/servers/udp"
+	. "v2ray.com/ext/assert"
 )
 
 func TestShadowsocksAES256TCP(t *testing.T) {
-	assert := assert.On(t)
+	assert := With(t)
 
 	tcpServer := tcp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := tcpServer.Start()
-	assert.Error(err).IsNil()
+	assert(err, IsNil)
 	defer tcpServer.Close()
 
 	account := serial.ToTypedMessage(&shadowsocks.Account{
@@ -38,6 +38,12 @@ func TestShadowsocksAES256TCP(t *testing.T) {
 
 	serverPort := pickPort()
 	serverConfig := &core.Config{
+		App: []*serial.TypedMessage{
+			serial.ToTypedMessage(&log.Config{
+				ErrorLogLevel: log.LogLevel_Debug,
+				ErrorLogType:  log.LogType_Console,
+			}),
+		},
 		Inbound: []*proxyman.InboundHandlerConfig{
 			{
 				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
@@ -57,16 +63,16 @@ func TestShadowsocksAES256TCP(t *testing.T) {
 				ProxySettings: serial.ToTypedMessage(&freedom.Config{}),
 			},
 		},
+	}
+
+	clientPort := pickPort()
+	clientConfig := &core.Config{
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(&log.Config{
 				ErrorLogLevel: log.LogLevel_Debug,
 				ErrorLogType:  log.LogType_Console,
 			}),
 		},
-	}
-
-	clientPort := pickPort()
-	clientConfig := &core.Config{
 		Inbound: []*proxyman.InboundHandlerConfig{
 			{
 				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
@@ -99,16 +105,10 @@ func TestShadowsocksAES256TCP(t *testing.T) {
 				}),
 			},
 		},
-		App: []*serial.TypedMessage{
-			serial.ToTypedMessage(&log.Config{
-				ErrorLogLevel: log.LogLevel_Debug,
-				ErrorLogType:  log.LogType_Console,
-			}),
-		},
 	}
 
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
-	assert.Error(err).IsNil()
+	assert(err, IsNil)
 
 	var wg sync.WaitGroup
 	wg.Add(10)
@@ -118,18 +118,18 @@ func TestShadowsocksAES256TCP(t *testing.T) {
 				IP:   []byte{127, 0, 0, 1},
 				Port: int(clientPort),
 			})
-			assert.Error(err).IsNil()
+			assert(err, IsNil)
 
 			payload := make([]byte, 10240*1024)
 			rand.Read(payload)
 
 			nBytes, err := conn.Write([]byte(payload))
-			assert.Error(err).IsNil()
-			assert.Int(nBytes).Equals(len(payload))
+			assert(err, IsNil)
+			assert(nBytes, Equals, len(payload))
 
 			response := readFrom(conn, time.Second*20, 10240*1024)
-			assert.Bytes(response).Equals(xor([]byte(payload)))
-			assert.Error(conn.Close()).IsNil()
+			assert(response, Equals, xor([]byte(payload)))
+			assert(conn.Close(), IsNil)
 			wg.Done()
 		}()
 	}
@@ -139,13 +139,13 @@ func TestShadowsocksAES256TCP(t *testing.T) {
 }
 
 func TestShadowsocksAES128UDP(t *testing.T) {
-	assert := assert.On(t)
+	assert := With(t)
 
 	udpServer := udp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := udpServer.Start()
-	assert.Error(err).IsNil()
+	assert(err, IsNil)
 	defer udpServer.Close()
 
 	account := serial.ToTypedMessage(&shadowsocks.Account{
@@ -156,6 +156,12 @@ func TestShadowsocksAES128UDP(t *testing.T) {
 
 	serverPort := pickPort()
 	serverConfig := &core.Config{
+		App: []*serial.TypedMessage{
+			serial.ToTypedMessage(&log.Config{
+				ErrorLogLevel: log.LogLevel_Debug,
+				ErrorLogType:  log.LogType_Console,
+			}),
+		},
 		Inbound: []*proxyman.InboundHandlerConfig{
 			{
 				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
@@ -176,16 +182,16 @@ func TestShadowsocksAES128UDP(t *testing.T) {
 				ProxySettings: serial.ToTypedMessage(&freedom.Config{}),
 			},
 		},
+	}
+
+	clientPort := pickPort()
+	clientConfig := &core.Config{
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(&log.Config{
 				ErrorLogLevel: log.LogLevel_Debug,
 				ErrorLogType:  log.LogType_Console,
 			}),
 		},
-	}
-
-	clientPort := pickPort()
-	clientConfig := &core.Config{
 		Inbound: []*proxyman.InboundHandlerConfig{
 			{
 				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
@@ -218,16 +224,10 @@ func TestShadowsocksAES128UDP(t *testing.T) {
 				}),
 			},
 		},
-		App: []*serial.TypedMessage{
-			serial.ToTypedMessage(&log.Config{
-				ErrorLogLevel: log.LogLevel_Debug,
-				ErrorLogType:  log.LogType_Console,
-			}),
-		},
 	}
 
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
-	assert.Error(err).IsNil()
+	assert(err, IsNil)
 
 	var wg sync.WaitGroup
 	wg.Add(10)
@@ -237,18 +237,18 @@ func TestShadowsocksAES128UDP(t *testing.T) {
 				IP:   []byte{127, 0, 0, 1},
 				Port: int(clientPort),
 			})
-			assert.Error(err).IsNil()
+			assert(err, IsNil)
 
 			payload := make([]byte, 1024)
 			rand.Read(payload)
 
 			nBytes, err := conn.Write([]byte(payload))
-			assert.Error(err).IsNil()
-			assert.Int(nBytes).Equals(len(payload))
+			assert(err, IsNil)
+			assert(nBytes, Equals, len(payload))
 
 			response := readFrom(conn, time.Second*5, 1024)
-			assert.Bytes(response).Equals(xor([]byte(payload)))
-			assert.Error(conn.Close()).IsNil()
+			assert(response, Equals, xor([]byte(payload)))
+			assert(conn.Close(), IsNil)
 			wg.Done()
 		}()
 	}
@@ -258,13 +258,13 @@ func TestShadowsocksAES128UDP(t *testing.T) {
 }
 
 func TestShadowsocksChacha20TCP(t *testing.T) {
-	assert := assert.On(t)
+	assert := With(t)
 
 	tcpServer := tcp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := tcpServer.Start()
-	assert.Error(err).IsNil()
+	assert(err, IsNil)
 	defer tcpServer.Close()
 
 	account := serial.ToTypedMessage(&shadowsocks.Account{
@@ -275,6 +275,12 @@ func TestShadowsocksChacha20TCP(t *testing.T) {
 
 	serverPort := pickPort()
 	serverConfig := &core.Config{
+		App: []*serial.TypedMessage{
+			serial.ToTypedMessage(&log.Config{
+				ErrorLogLevel: log.LogLevel_Debug,
+				ErrorLogType:  log.LogType_Console,
+			}),
+		},
 		Inbound: []*proxyman.InboundHandlerConfig{
 			{
 				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
@@ -294,16 +300,16 @@ func TestShadowsocksChacha20TCP(t *testing.T) {
 				ProxySettings: serial.ToTypedMessage(&freedom.Config{}),
 			},
 		},
+	}
+
+	clientPort := pickPort()
+	clientConfig := &core.Config{
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(&log.Config{
 				ErrorLogLevel: log.LogLevel_Debug,
 				ErrorLogType:  log.LogType_Console,
 			}),
 		},
-	}
-
-	clientPort := pickPort()
-	clientConfig := &core.Config{
 		Inbound: []*proxyman.InboundHandlerConfig{
 			{
 				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
@@ -336,16 +342,10 @@ func TestShadowsocksChacha20TCP(t *testing.T) {
 				}),
 			},
 		},
-		App: []*serial.TypedMessage{
-			serial.ToTypedMessage(&log.Config{
-				ErrorLogLevel: log.LogLevel_Debug,
-				ErrorLogType:  log.LogType_Console,
-			}),
-		},
 	}
 
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
-	assert.Error(err).IsNil()
+	assert(err, IsNil)
 
 	var wg sync.WaitGroup
 	wg.Add(10)
@@ -355,18 +355,18 @@ func TestShadowsocksChacha20TCP(t *testing.T) {
 				IP:   []byte{127, 0, 0, 1},
 				Port: int(clientPort),
 			})
-			assert.Error(err).IsNil()
+			assert(err, IsNil)
 
 			payload := make([]byte, 10240*1024)
 			rand.Read(payload)
 
 			nBytes, err := conn.Write([]byte(payload))
-			assert.Error(err).IsNil()
-			assert.Int(nBytes).Equals(len(payload))
+			assert(err, IsNil)
+			assert(nBytes, Equals, len(payload))
 
 			response := readFrom(conn, time.Second*20, 10240*1024)
-			assert.Bytes(response).Equals(xor([]byte(payload)))
-			assert.Error(conn.Close()).IsNil()
+			assert(response, Equals, xor([]byte(payload)))
+			assert(conn.Close(), IsNil)
 			wg.Done()
 		}()
 	}

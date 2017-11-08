@@ -3,9 +3,9 @@ package http
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -53,7 +53,7 @@ func parseHost(rawHost string, defaultPort net.Port) (net.Destination, error) {
 		} else {
 			return net.Destination{}, err
 		}
-	} else {
+	} else if len(rawPort) > 0 {
 		intPort, err := strconv.Atoi(rawPort)
 		if err != nil {
 			return net.Destination{}, err
@@ -67,6 +67,23 @@ func parseHost(rawHost string, defaultPort net.Port) (net.Destination, error) {
 func isTimeout(err error) bool {
 	nerr, ok := err.(net.Error)
 	return ok && nerr.Timeout()
+}
+
+func parseBasicAuth(auth string) (username, password string, ok bool) {
+	const prefix = "Basic "
+	if !strings.HasPrefix(auth, prefix) {
+		return
+	}
+	c, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+	if err != nil {
+		return
+	}
+	cs := string(c)
+	s := strings.IndexByte(cs, ':')
+	if s < 0 {
+		return
+	}
+	return cs[:s], cs[s+1:], true
 }
 
 func (s *Server) Process(ctx context.Context, network net.Network, conn internet.Connection, dispatcher dispatcher.Interface) error {
@@ -83,6 +100,15 @@ Start:
 		}
 		return trace
 	}
+
+	if len(s.config.Accounts) > 0 {
+		user, pass, ok := parseBasicAuth(request.Header.Get("Proxy-Authorization"))
+		if !ok || !s.config.HasAccount(user, pass) {
+			_, err := conn.Write([]byte("HTTP/1.1 401 UNAUTHORIZED\r\n\r\n"))
+			return err
+		}
+	}
+
 	log.Trace(newError("request to Method [", request.Method, "] Host [", request.Host, "] with URL [", request.URL, "]"))
 	conn.SetReadDeadline(time.Time{})
 
@@ -158,8 +184,6 @@ func (s *Server) handleConnect(ctx context.Context, request *http.Request, reade
 		return newError("connection ends").Base(err)
 	}
 
-	runtime.KeepAlive(timer)
-
 	return nil
 }
 
@@ -185,12 +209,18 @@ func StripHopByHopHeaders(header http.Header) {
 	for _, h := range strings.Split(connections, ",") {
 		header.Del(strings.TrimSpace(h))
 	}
+
+	// Prevent UA from being set to golang's default ones
+	if len(header.Get("User-Agent")) == 0 {
+		header.Set("User-Agent", "")
+	}
 }
 
 var errWaitAnother = newError("keep alive")
 
 func (s *Server) handlePlainHTTP(ctx context.Context, request *http.Request, reader io.Reader, writer io.Writer, dest net.Destination, dispatcher dispatcher.Interface) error {
-	if len(request.URL.Host) <= 0 {
+	if !s.config.AllowTransparent && len(request.URL.Host) <= 0 {
+		// RFC 2068 (HTTP/1.1) requires URL to be absolute URL in HTTP proxy.
 		response := &http.Response{
 			Status:        "Bad Request",
 			StatusCode:    400,
@@ -207,7 +237,9 @@ func (s *Server) handlePlainHTTP(ctx context.Context, request *http.Request, rea
 		return response.Write(writer)
 	}
 
-	request.Host = request.URL.Host
+	if len(request.URL.Host) > 0 {
+		request.Host = request.URL.Host
+	}
 	StripHopByHopHeaders(request.Header)
 
 	ray, err := dispatcher.Dispatch(ctx, dest)
