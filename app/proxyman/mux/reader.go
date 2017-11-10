@@ -40,8 +40,8 @@ func NewPacketReader(reader io.Reader) *PacketReader {
 	}
 }
 
-// Read implements buf.Reader.
-func (r *PacketReader) Read() (buf.MultiBuffer, error) {
+// ReadMultiBuffer implements buf.Reader.
+func (r *PacketReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 	if r.eof {
 		return nil, io.EOF
 	}
@@ -79,8 +79,8 @@ func NewStreamReader(reader io.Reader) *StreamReader {
 	}
 }
 
-// Read implmenets buf.Reader.
-func (r *StreamReader) Read() (buf.MultiBuffer, error) {
+// ReadMultiBuffer implmenets buf.Reader.
+func (r *StreamReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 	if r.leftOver == 0 {
 		r.leftOver = -1
 		return nil, io.EOF
@@ -94,7 +94,7 @@ func (r *StreamReader) Read() (buf.MultiBuffer, error) {
 		r.leftOver = int(size)
 	}
 
-	mb := buf.NewMultiBuffer()
+	mb := buf.NewMultiBufferCap(32)
 	for r.leftOver > 0 {
 		readLen := buf.Size
 		if r.leftOver < readLen {

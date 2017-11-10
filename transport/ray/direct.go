@@ -106,7 +106,7 @@ func (s *Stream) Peek(b *buf.Buffer) {
 }
 
 // Read reads data from the Stream.
-func (s *Stream) Read() (buf.MultiBuffer, error) {
+func (s *Stream) ReadMultiBuffer() (buf.MultiBuffer, error) {
 	for {
 		mb, err := s.getData()
 		if err != nil {
@@ -178,7 +178,7 @@ func (s *Stream) waitForStreamSize() error {
 }
 
 // Write writes more data into the Stream.
-func (s *Stream) Write(data buf.MultiBuffer) error {
+func (s *Stream) WriteMultiBuffer(data buf.MultiBuffer) error {
 	if data.IsEmpty() {
 		return nil
 	}
@@ -197,10 +197,10 @@ func (s *Stream) Write(data buf.MultiBuffer) error {
 	}
 
 	if s.data == nil {
-		s.data = data
-	} else {
-		s.data.AppendMulti(data)
+		s.data = buf.NewMultiBufferCap(128)
 	}
+
+	s.data.AppendMulti(data)
 	s.size += uint64(data.Len())
 	s.notifyWrite()
 

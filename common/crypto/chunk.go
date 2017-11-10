@@ -8,11 +8,13 @@ import (
 	"v2ray.com/core/common/serial"
 )
 
+// ChunkSizeDecoder is an utility class to decode size value from bytes.
 type ChunkSizeDecoder interface {
 	SizeBytes() int
 	Decode([]byte) (uint16, error)
 }
 
+// ChunkSizeEncoder is an utility class to encode size value into bytes.
 type ChunkSizeEncoder interface {
 	SizeBytes() int
 	Encode(uint16, []byte) []byte
@@ -46,6 +48,7 @@ func NewChunkStreamReader(sizeDecoder ChunkSizeDecoder, reader io.Reader) *Chunk
 		sizeDecoder: sizeDecoder,
 		reader:      buf.NewReader(reader),
 		buffer:      make([]byte, sizeDecoder.SizeBytes()),
+		leftOver:    buf.NewMultiBufferCap(16),
 	}
 }
 
@@ -53,7 +56,7 @@ func (r *ChunkStreamReader) readAtLeast(size int) error {
 	mb := r.leftOver
 	r.leftOver = nil
 	for mb.Len() < size {
-		extra, err := r.reader.Read()
+		extra, err := r.reader.ReadMultiBuffer()
 		if err != nil {
 			mb.Release()
 			return err
@@ -71,11 +74,11 @@ func (r *ChunkStreamReader) readSize() (uint16, error) {
 			return 0, err
 		}
 	}
-	common.Must2(r.leftOver.Read(r.buffer))
+	common.Must2(io.ReadFull(&r.leftOver, r.buffer))
 	return r.sizeDecoder.Decode(r.buffer)
 }
 
-func (r *ChunkStreamReader) Read() (buf.MultiBuffer, error) {
+func (r *ChunkStreamReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 	size := r.leftOverSize
 	if size == 0 {
 		nextSize, err := r.readSize()
@@ -126,15 +129,16 @@ func NewChunkStreamWriter(sizeEncoder ChunkSizeEncoder, writer io.Writer) *Chunk
 	}
 }
 
-func (w *ChunkStreamWriter) Write(mb buf.MultiBuffer) error {
-	mb2Write := buf.NewMultiBuffer()
+func (w *ChunkStreamWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 	const sliceSize = 8192
+	mbLen := mb.Len()
+	mb2Write := buf.NewMultiBufferCap(mbLen/buf.Size + mbLen/sliceSize + 2)
 
 	for {
 		slice := mb.SliceBySize(sliceSize)
 
 		b := buf.New()
-		common.Must(b.AppendSupplier(func(buffer []byte) (int, error) {
+		common.Must(b.Reset(func(buffer []byte) (int, error) {
 			w.sizeEncoder.Encode(uint16(slice.Len()), buffer[:0])
 			return w.sizeEncoder.SizeBytes(), nil
 		}))
@@ -146,5 +150,5 @@ func (w *ChunkStreamWriter) Write(mb buf.MultiBuffer) error {
 		}
 	}
 
-	return w.writer.Write(mb2Write)
+	return w.writer.WriteMultiBuffer(mb2Write)
 }
