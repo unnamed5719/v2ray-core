@@ -45,13 +45,16 @@ func NormalizeEnvName(name string) string {
 	return strings.Replace(strings.ToUpper(strings.TrimSpace(name)), ".", "_", -1)
 }
 
+func getExecutableDir() string {
+	exec, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exec)
+}
+
 func GetAssetLocation(file string) string {
-	assetPath := EnvFlag{Name: "v2ray.location.asset"}.GetValue(func() string {
-		exec, err := os.Executable()
-		if err != nil {
-			return ""
-		}
-		return filepath.Dir(exec)
-	})
+	const name = "v2ray.location.asset"
+	assetPath := EnvFlag{Name: name, AltName: NormalizeEnvName(name)}.GetValue(getExecutableDir)
 	return filepath.Join(assetPath, file)
 }

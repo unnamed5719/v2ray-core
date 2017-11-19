@@ -62,18 +62,23 @@ func (w *BufferedWriter) Write(b []byte) (int, error) {
 
 	totalBytes := 0
 	for len(b) > 0 {
+		if w.buffer == nil {
+			w.buffer = New()
+		}
+
 		nBytes, err := w.buffer.Write(b)
 		totalBytes += nBytes
 		if err != nil {
 			return totalBytes, err
 		}
-		if w.buffer.IsFull() {
+		if !w.buffered || w.buffer.IsFull() {
 			if err := w.Flush(); err != nil {
 				return totalBytes, err
 			}
 		}
 		b = b[nBytes:]
 	}
+
 	return totalBytes, nil
 }
 
@@ -121,6 +126,7 @@ func (w *BufferedWriter) SetBuffered(f bool) error {
 	return nil
 }
 
+// ReadFrom implements io.ReaderFrom.
 func (w *BufferedWriter) ReadFrom(reader io.Reader) (int64, error) {
 	var sc SizeCounter
 	if !w.buffer.IsEmpty() {
@@ -130,11 +136,12 @@ func (w *BufferedWriter) ReadFrom(reader io.Reader) (int64, error) {
 		}
 	}
 
+	w.buffered = false
+
 	if readerFrom, ok := w.writer.(io.ReaderFrom); ok {
 		return readerFrom.ReadFrom(reader)
 	}
 
-	w.buffered = false
 	err := Copy(NewReader(reader), w, CountSize(&sc))
 	return sc.Size, err
 }
