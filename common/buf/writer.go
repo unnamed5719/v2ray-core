@@ -26,16 +26,14 @@ func (w *BufferToBytesWriter) WriteMultiBuffer(mb MultiBuffer) error {
 	return err
 }
 
+// ReadFrom implements io.ReaderFrom.
 func (w *BufferToBytesWriter) ReadFrom(reader io.Reader) (int64, error) {
-	if readerFrom, ok := w.Writer.(io.ReaderFrom); ok {
-		return readerFrom.ReadFrom(reader)
-	}
-
 	var sc SizeCounter
 	err := Copy(NewReader(reader), w, CountSize(&sc))
 	return sc.Size, err
 }
 
+// BufferedWriter is a Writer with internal buffer.
 type BufferedWriter struct {
 	writer       Writer
 	legacyWriter io.Writer
@@ -43,6 +41,7 @@ type BufferedWriter struct {
 	buffered     bool
 }
 
+// NewBufferedWriter creates a new BufferedWriter.
 func NewBufferedWriter(writer Writer) *BufferedWriter {
 	w := &BufferedWriter{
 		writer:   writer,
@@ -55,6 +54,7 @@ func NewBufferedWriter(writer Writer) *BufferedWriter {
 	return w
 }
 
+// Write implements io.Writer.
 func (w *BufferedWriter) Write(b []byte) (int, error) {
 	if !w.buffered && w.legacyWriter != nil {
 		return w.legacyWriter.Write(b)
@@ -82,6 +82,7 @@ func (w *BufferedWriter) Write(b []byte) (int, error) {
 	return totalBytes, nil
 }
 
+// WriteMultiBuffer implements Writer. It takes ownership of the given MultiBuffer.
 func (w *BufferedWriter) WriteMultiBuffer(b MultiBuffer) error {
 	if !w.buffered {
 		return w.writer.WriteMultiBuffer(b)
@@ -103,6 +104,7 @@ func (w *BufferedWriter) WriteMultiBuffer(b MultiBuffer) error {
 	return nil
 }
 
+// Flush flushes buffered content into underlying writer.
 func (w *BufferedWriter) Flush() error {
 	if !w.buffer.IsEmpty() {
 		if err := w.writer.WriteMultiBuffer(NewMultiBufferValue(w.buffer)); err != nil {
@@ -137,12 +139,8 @@ func (w *BufferedWriter) ReadFrom(reader io.Reader) (int64, error) {
 	}
 
 	w.buffered = false
-
-	if readerFrom, ok := w.writer.(io.ReaderFrom); ok {
-		return readerFrom.ReadFrom(reader)
-	}
-
 	err := Copy(NewReader(reader), w, CountSize(&sc))
+
 	return sc.Size, err
 }
 
