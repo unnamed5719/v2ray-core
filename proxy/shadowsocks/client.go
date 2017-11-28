@@ -2,9 +2,10 @@ package shadowsocks
 
 import (
 	"context"
-	"time"
 
+	"v2ray.com/core/app"
 	"v2ray.com/core/app/log"
+	"v2ray.com/core/app/policy"
 	"v2ray.com/core/common"
 	"v2ray.com/core/common/buf"
 	"v2ray.com/core/common/net"
@@ -18,7 +19,8 @@ import (
 
 // Client is a inbound handler for Shadowsocks protocol
 type Client struct {
-	serverPicker protocol.ServerPicker
+	serverPicker  protocol.ServerPicker
+	policyManager policy.Manager
 }
 
 // NewClient create a new Shadowsocks client.
@@ -33,6 +35,18 @@ func NewClient(ctx context.Context, config *ClientConfig) (*Client, error) {
 	client := &Client{
 		serverPicker: protocol.NewRoundRobinServerPicker(serverList),
 	}
+	space := app.SpaceFromContext(ctx)
+	if space == nil {
+		return nil, newError("Space not found.")
+	}
+	space.OnInitialize(func() error {
+		pm := policy.FromSpace(space)
+		if pm == nil {
+			return newError("Policy not found in space.")
+		}
+		client.policyManager = pm
+		return nil
+	})
 
 	return client, nil
 }
@@ -90,8 +104,9 @@ func (v *Client) Process(ctx context.Context, outboundRay ray.OutboundRay, diale
 		request.Option |= RequestOptionOneTimeAuth
 	}
 
+	sessionPolicy := v.policyManager.GetPolicy(user.Level)
 	ctx, cancel := context.WithCancel(ctx)
-	timer := signal.CancelAfterInactivity(ctx, cancel, time.Minute*5)
+	timer := signal.CancelAfterInactivity(ctx, cancel, sessionPolicy.Timeout.ConnectionIdle.Duration())
 
 	if request.Command == protocol.RequestCommandTCP {
 		bufferedWriter := buf.NewBufferedWriter(buf.NewWriter(conn))
@@ -105,25 +120,20 @@ func (v *Client) Process(ctx context.Context, outboundRay ray.OutboundRay, diale
 		}
 
 		requestDone := signal.ExecuteAsync(func() error {
-			if err := buf.Copy(outboundRay.OutboundInput(), bodyWriter, buf.UpdateActivity(timer)); err != nil {
-				return err
-			}
-			return nil
+			defer timer.SetTimeout(sessionPolicy.Timeout.DownlinkOnly.Duration())
+			return buf.Copy(outboundRay.OutboundInput(), bodyWriter, buf.UpdateActivity(timer))
 		})
 
 		responseDone := signal.ExecuteAsync(func() error {
 			defer outboundRay.OutboundOutput().Close()
+			defer timer.SetTimeout(sessionPolicy.Timeout.UplinkOnly.Duration())
 
 			responseReader, err := ReadTCPResponse(user, conn)
 			if err != nil {
 				return err
 			}
 
-			if err := buf.Copy(responseReader, outboundRay.OutboundOutput(), buf.UpdateActivity(timer)); err != nil {
-				return err
-			}
-
-			return nil
+			return buf.Copy(responseReader, outboundRay.OutboundOutput(), buf.UpdateActivity(timer))
 		})
 
 		if err := signal.ErrorOrFinish2(ctx, requestDone, responseDone); err != nil {

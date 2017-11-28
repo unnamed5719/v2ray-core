@@ -48,23 +48,18 @@ var (
 
 // BufferedWriter is a Writer with internal buffer.
 type BufferedWriter struct {
-	writer       Writer
-	legacyWriter io.Writer
-	buffer       *Buffer
-	buffered     bool
+	writer   Writer
+	buffer   *Buffer
+	buffered bool
 }
 
 // NewBufferedWriter creates a new BufferedWriter.
 func NewBufferedWriter(writer Writer) *BufferedWriter {
-	w := &BufferedWriter{
+	return &BufferedWriter{
 		writer:   writer,
 		buffer:   New(),
 		buffered: true,
 	}
-	if lw, ok := writer.(io.Writer); ok {
-		w.legacyWriter = lw
-	}
-	return w
 }
 
 func (w *BufferedWriter) WriteByte(c byte) error {
@@ -74,8 +69,10 @@ func (w *BufferedWriter) WriteByte(c byte) error {
 
 // Write implements io.Writer.
 func (w *BufferedWriter) Write(b []byte) (int, error) {
-	if !w.buffered && w.legacyWriter != nil {
-		return w.legacyWriter.Write(b)
+	if !w.buffered {
+		if writer, ok := w.writer.(io.Writer); ok {
+			return writer.Write(b)
+		}
 	}
 
 	totalBytes := 0
@@ -183,13 +180,11 @@ func (noOpWriter) WriteMultiBuffer(b MultiBuffer) error {
 	return nil
 }
 
-type noOpBytesWriter struct{}
-
-func (noOpBytesWriter) Write(b []byte) (int, error) {
+func (noOpWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (noOpBytesWriter) ReadFrom(reader io.Reader) (int64, error) {
+func (noOpWriter) ReadFrom(reader io.Reader) (int64, error) {
 	b := New()
 	defer b.Release()
 
@@ -211,5 +206,5 @@ var (
 	Discard Writer = noOpWriter{}
 
 	// DiscardBytes is an io.Writer that swallows all contents written in.
-	DiscardBytes io.Writer = noOpBytesWriter{}
+	DiscardBytes io.Writer = noOpWriter{}
 )

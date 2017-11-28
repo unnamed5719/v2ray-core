@@ -29,6 +29,26 @@ func (v StaticBytesGenerator) Next() []byte {
 	return v.Content
 }
 
+type IncreasingAEADNonceGenerator struct {
+	nonce []byte
+}
+
+func NewIncreasingAEADNonceGenerator() *IncreasingAEADNonceGenerator {
+	return &IncreasingAEADNonceGenerator{
+		nonce: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+	}
+}
+
+func (g *IncreasingAEADNonceGenerator) Next() []byte {
+	for i := range g.nonce {
+		g.nonce[i]++
+		if g.nonce[i] != 0 {
+			break
+		}
+	}
+	return g.nonce
+}
+
 type Authenticator interface {
 	NonceSize() int
 	Overhead() int
@@ -48,7 +68,10 @@ func (v *AEADAuthenticator) Open(dst, cipherText []byte) ([]byte, error) {
 		return nil, newError("invalid AEAD nonce size: ", len(iv))
 	}
 
-	additionalData := v.AdditionalDataGenerator.Next()
+	var additionalData []byte
+	if v.AdditionalDataGenerator != nil {
+		additionalData = v.AdditionalDataGenerator.Next()
+	}
 	return v.AEAD.Open(dst, iv, cipherText, additionalData)
 }
 
@@ -58,7 +81,10 @@ func (v *AEADAuthenticator) Seal(dst, plainText []byte) ([]byte, error) {
 		return nil, newError("invalid AEAD nonce size: ", len(iv))
 	}
 
-	additionalData := v.AdditionalDataGenerator.Next()
+	var additionalData []byte
+	if v.AdditionalDataGenerator != nil {
+		additionalData = v.AdditionalDataGenerator.Next()
+	}
 	return v.AEAD.Seal(dst, iv, plainText, additionalData), nil
 }
 
