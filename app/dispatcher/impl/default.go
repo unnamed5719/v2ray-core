@@ -1,6 +1,6 @@
 package impl
 
-//go:generate go run $GOPATH/src/v2ray.com/core/tools/generrorgen/main.go -pkg impl -path App,Dispatcher,Default
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg impl -path App,Dispatcher,Default
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func NewDefaultDispatcher(ctx context.Context, config *dispatcher.Config) (*Defa
 		return nil, newError("no space in context")
 	}
 	d := &DefaultDispatcher{}
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		d.ohm = proxyman.OutboundHandlerManagerFromSpace(space)
 		if d.ohm == nil {
 			return newError("OutboundHandlerManager is not found in the space")

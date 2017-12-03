@@ -1,6 +1,6 @@
 package inbound
 
-//go:generate go run $GOPATH/src/v2ray.com/core/tools/generrorgen/main.go -pkg inbound -path Proxy,VMess,Inbound
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg inbound -path Proxy,VMess,Inbound
 
 import (
 	"context"
@@ -103,7 +103,7 @@ func New(ctx context.Context, config *Config) (*Handler, error) {
 		sessionHistory: encoding.NewSessionHistory(ctx),
 	}
 
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		handler.inboundHandlerManager = proxyman.InboundHandlerManagerFromSpace(space)
 		if handler.inboundHandlerManager == nil {
 			return newError("InboundHandlerManager is not found is space.")

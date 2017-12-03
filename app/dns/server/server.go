@@ -1,6 +1,6 @@
 package server
 
-//go:generate go run $GOPATH/src/v2ray.com/core/tools/generrorgen/main.go -pkg server -path App,DNS,Server
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg server -path App,DNS,Server
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func NewCacheServer(ctx context.Context, config *dns.Config) (*CacheServer, erro
 		servers: make([]NameServer, len(config.NameServers)),
 		hosts:   config.GetInternalHosts(),
 	}
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		disp := dispatcher.FromSpace(space)
 		if disp == nil {
 			return newError("dispatcher is not found in the space")

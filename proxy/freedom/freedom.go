@@ -1,6 +1,6 @@
 package freedom
 
-//go:generate go run $GOPATH/src/v2ray.com/core/tools/generrorgen/main.go -pkg freedom -path Proxy,Freedom
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg freedom -path Proxy,Freedom
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func New(ctx context.Context, config *Config) (*Handler, error) {
 		timeout:        config.Timeout,
 		destOverride:   config.DestinationOverride,
 	}
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		if config.DomainStrategy == Config_USE_IP {
 			f.dns = dns.FromSpace(space)
 			if f.dns == nil {

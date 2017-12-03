@@ -1,6 +1,6 @@
 package dokodemo
 
-//go:generate go run $GOPATH/src/v2ray.com/core/tools/generrorgen/main.go -pkg dokodemo -path Proxy,Dokodemo
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg dokodemo -path Proxy,Dokodemo
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func New(ctx context.Context, config *Config) (*DokodemoDoor, error) {
 		address: config.GetPredefinedAddress(),
 		port:    net.Port(config.Port),
 	}
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		pm := policy.FromSpace(space)
 		if pm == nil {
 			return newError("Policy not found in space.")

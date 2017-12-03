@@ -1,6 +1,6 @@
 package mux
 
-//go:generate go run $GOPATH/src/v2ray.com/core/tools/generrorgen/main.go -pkg mux -path App,Proxyman,Mux
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg mux -path App,Proxyman,Mux
 
 import (
 	"context"
@@ -274,7 +274,7 @@ type Server struct {
 func NewServer(ctx context.Context) *Server {
 	s := &Server{}
 	space := app.SpaceFromContext(ctx)
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		d := dispatcher.FromSpace(space)
 		if d == nil {
 			return newError("no dispatcher in space")

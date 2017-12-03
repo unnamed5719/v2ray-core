@@ -1,6 +1,6 @@
 package outbound
 
-//go:generate go run $GOPATH/src/v2ray.com/core/tools/generrorgen/main.go -pkg outbound -path Proxy,VMess,Outbound
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg outbound -path Proxy,VMess,Outbound
 
 import (
 	"context"
@@ -44,7 +44,7 @@ func New(ctx context.Context, config *Config) (*Handler, error) {
 		serverPicker: protocol.NewRoundRobinServerPicker(serverList),
 	}
 
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		pm := policy.FromSpace(space)
 		if pm == nil {
 			return newError("Policy is not found in space.")

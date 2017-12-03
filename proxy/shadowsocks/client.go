@@ -39,7 +39,7 @@ func NewClient(ctx context.Context, config *ClientConfig) (*Client, error) {
 	if space == nil {
 		return nil, newError("Space not found.")
 	}
-	space.OnInitialize(func() error {
+	space.On(app.SpaceInitializing, func(interface{}) error {
 		pm := policy.FromSpace(space)
 		if pm == nil {
 			return newError("Policy not found in space.")
@@ -97,7 +97,7 @@ func (v *Client) Process(ctx context.Context, outboundRay ray.OutboundRay, diale
 	if err != nil {
 		return newError("failed to get a valid user account").AtWarning().Base(err)
 	}
-	account := rawAccount.(*ShadowsocksAccount)
+	account := rawAccount.(*MemoryAccount)
 	request.User = user
 
 	if account.OneTimeAuth == Account_Auto || account.OneTimeAuth == Account_Enabled {

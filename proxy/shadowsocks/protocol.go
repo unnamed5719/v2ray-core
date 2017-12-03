@@ -27,17 +27,20 @@ func ReadTCPSession(user *protocol.User, reader io.Reader) (*protocol.RequestHea
 	if err != nil {
 		return nil, nil, newError("failed to parse account").Base(err).AtError()
 	}
-	account := rawAccount.(*ShadowsocksAccount)
+	account := rawAccount.(*MemoryAccount)
 
 	buffer := buf.NewLocal(512)
 	defer buffer.Release()
 
 	ivLen := account.Cipher.IVSize()
-	if err := buffer.AppendSupplier(buf.ReadFullFrom(reader, ivLen)); err != nil {
-		return nil, nil, newError("failed to read IV").Base(err)
-	}
+	var iv []byte
+	if ivLen > 0 {
+		if err := buffer.AppendSupplier(buf.ReadFullFrom(reader, ivLen)); err != nil {
+			return nil, nil, newError("failed to read IV").Base(err)
+		}
 
-	iv := append([]byte(nil), buffer.BytesTo(ivLen)...)
+		iv = append([]byte(nil), buffer.BytesTo(ivLen)...)
+	}
 
 	r, err := account.Cipher.NewDecryptionReader(account.Key, iv, reader)
 	if err != nil {
@@ -139,17 +142,20 @@ func WriteTCPRequest(request *protocol.RequestHeader, writer io.Writer) (buf.Wri
 	if err != nil {
 		return nil, newError("failed to parse account").Base(err).AtError()
 	}
-	account := rawAccount.(*ShadowsocksAccount)
+	account := rawAccount.(*MemoryAccount)
 
 	if account.Cipher.IsAEAD() {
 		request.Option.Clear(RequestOptionOneTimeAuth)
 	}
 
-	iv := make([]byte, account.Cipher.IVSize())
-	common.Must2(rand.Read(iv))
-	_, err = writer.Write(iv)
-	if err != nil {
-		return nil, newError("failed to write IV")
+	var iv []byte
+	if account.Cipher.IVSize() > 0 {
+		iv = make([]byte, account.Cipher.IVSize())
+		common.Must2(rand.Read(iv))
+		_, err = writer.Write(iv)
+		if err != nil {
+			return nil, newError("failed to write IV")
+		}
 	}
 
 	w, err := account.Cipher.NewEncryptionWriter(account.Key, iv, writer)
@@ -205,12 +211,15 @@ func ReadTCPResponse(user *protocol.User, reader io.Reader) (buf.Reader, error) 
 	if err != nil {
 		return nil, newError("failed to parse account").Base(err).AtError()
 	}
-	account := rawAccount.(*ShadowsocksAccount)
+	account := rawAccount.(*MemoryAccount)
 
-	iv := make([]byte, account.Cipher.IVSize())
-	_, err = io.ReadFull(reader, iv)
-	if err != nil {
-		return nil, newError("failed to read IV").Base(err)
+	var iv []byte
+	if account.Cipher.IVSize() > 0 {
+		iv = make([]byte, account.Cipher.IVSize())
+		_, err = io.ReadFull(reader, iv)
+		if err != nil {
+			return nil, newError("failed to read IV").Base(err)
+		}
 	}
 
 	return account.Cipher.NewDecryptionReader(account.Key, iv, reader)
@@ -222,13 +231,16 @@ func WriteTCPResponse(request *protocol.RequestHeader, writer io.Writer) (buf.Wr
 	if err != nil {
 		return nil, newError("failed to parse account.").Base(err).AtError()
 	}
-	account := rawAccount.(*ShadowsocksAccount)
+	account := rawAccount.(*MemoryAccount)
 
-	iv := make([]byte, account.Cipher.IVSize())
-	common.Must2(rand.Read(iv))
-	_, err = writer.Write(iv)
-	if err != nil {
-		return nil, newError("failed to write IV.").Base(err)
+	var iv []byte
+	if account.Cipher.IVSize() > 0 {
+		iv = make([]byte, account.Cipher.IVSize())
+		common.Must2(rand.Read(iv))
+		_, err = writer.Write(iv)
+		if err != nil {
+			return nil, newError("failed to write IV.").Base(err)
+		}
 	}
 
 	return account.Cipher.NewEncryptionWriter(account.Key, iv, writer)
@@ -240,11 +252,13 @@ func EncodeUDPPacket(request *protocol.RequestHeader, payload []byte) (*buf.Buff
 	if err != nil {
 		return nil, newError("failed to parse account.").Base(err).AtError()
 	}
-	account := rawAccount.(*ShadowsocksAccount)
+	account := rawAccount.(*MemoryAccount)
 
 	buffer := buf.New()
 	ivLen := account.Cipher.IVSize()
-	common.Must(buffer.Reset(buf.ReadFullFrom(rand.Reader, ivLen)))
+	if ivLen > 0 {
+		common.Must(buffer.Reset(buf.ReadFullFrom(rand.Reader, ivLen)))
+	}
 	iv := buffer.Bytes()
 
 	switch request.Address.Family() {
@@ -282,11 +296,10 @@ func DecodeUDPPacket(user *protocol.User, payload *buf.Buffer) (*protocol.Reques
 	if err != nil {
 		return nil, nil, newError("failed to parse account").Base(err).AtError()
 	}
-	account := rawAccount.(*ShadowsocksAccount)
+	account := rawAccount.(*MemoryAccount)
 
 	var iv []byte
-	var authenticator *Authenticator
-	if !account.Cipher.IsAEAD() {
+	if !account.Cipher.IsAEAD() && account.Cipher.IVSize() > 0 {
 		// Keep track of IV as it gets removed from payload in DecodePacket.
 		iv = make([]byte, account.Cipher.IVSize())
 		copy(iv, payload.BytesTo(account.Cipher.IVSize()))
@@ -319,7 +332,7 @@ func DecodeUDPPacket(user *protocol.User, payload *buf.Buffer) (*protocol.Reques
 			payloadLen := payload.Len() - AuthSize
 			authBytes := payload.BytesFrom(payloadLen)
 
-			authenticator = NewAuthenticator(HeaderKeyGenerator(account.Key, iv))
+			authenticator := NewAuthenticator(HeaderKeyGenerator(account.Key, iv))
 			actualAuth := make([]byte, AuthSize)
 			authenticator.Authenticate(payload.BytesTo(payloadLen))(actualAuth)
 			if !bytes.Equal(actualAuth, authBytes) {
