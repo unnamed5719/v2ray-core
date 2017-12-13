@@ -120,12 +120,8 @@ Start:
 
 	if len(s.config.Accounts) > 0 {
 		user, pass, ok := parseBasicAuth(request.Header.Get("Proxy-Authorization"))
-		if !ok {
-			_, err := conn.Write([]byte("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n"))
-			return err
-		}
-		if !s.config.HasAccount(user, pass) {
-			_, err := conn.Write([]byte("HTTP/1.1 401 UNAUTHORIZED\r\n\r\n"))
+		if !ok || !s.config.HasAccount(user, pass) {
+			_, err := conn.Write([]byte("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"proxy\"\r\n\r\n"))
 			return err
 		}
 	}
