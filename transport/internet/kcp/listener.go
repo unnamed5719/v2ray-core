@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"sync"
 
-	"v2ray.com/core/app/log"
 	"v2ray.com/core/common"
 	"v2ray.com/core/common/buf"
 	"v2ray.com/core/common/net"
@@ -59,13 +58,11 @@ func NewListener(ctx context.Context, address net.Address, port net.Port, addCon
 		config:   kcpSettings,
 		addConn:  addConn,
 	}
-	securitySettings := internet.SecuritySettingsFromContext(ctx)
-	if securitySettings != nil {
-		switch securitySettings := securitySettings.(type) {
-		case *v2tls.Config:
-			l.tlsConfig = securitySettings.GetTLSConfig()
-		}
+
+	if config := v2tls.ConfigFromContext(ctx); config != nil {
+		l.tlsConfig = config.GetTLSConfig()
 	}
+
 	hub, err := udp.ListenUDP(address, port, udp.ListenOption{Callback: l.OnReceive, Concurrency: 2})
 	if err != nil {
 		return nil, err
@@ -73,7 +70,7 @@ func NewListener(ctx context.Context, address net.Address, port net.Port, addCon
 	l.Lock()
 	l.hub = hub
 	l.Unlock()
-	log.Trace(newError("listening on ", address, ":", port))
+	newError("listening on ", address, ":", port).WriteToLog()
 	return l, nil
 }
 
@@ -82,7 +79,7 @@ func (v *Listener) OnReceive(payload *buf.Buffer, src net.Destination, originalD
 
 	segments := v.reader.Read(payload.Bytes())
 	if len(segments) == 0 {
-		log.Trace(newError("discarding invalid payload from ", src))
+		newError("discarding invalid payload from ", src).WriteToLog()
 		return
 	}
 
@@ -124,9 +121,10 @@ func (v *Listener) OnReceive(payload *buf.Buffer, src net.Destination, originalD
 			Port: int(src.Port),
 		}
 		localAddr := v.hub.Addr()
-		conn = NewConnection(conv, &ConnMetadata{
-			LocalAddr:  localAddr,
-			RemoteAddr: remoteAddr,
+		conn = NewConnection(ConnMetadata{
+			LocalAddr:    localAddr,
+			RemoteAddr:   remoteAddr,
+			Conversation: conv,
 		}, &KCPPacketWriter{
 			Header:   v.header,
 			Security: v.security,

@@ -6,7 +6,6 @@ import (
 	"io"
 	"sync/atomic"
 
-	"v2ray.com/core/app/log"
 	"v2ray.com/core/common"
 	"v2ray.com/core/common/buf"
 	"v2ray.com/core/common/dice"
@@ -38,7 +37,7 @@ func fetchInput(ctx context.Context, input io.Reader, reader PacketReader, conn 
 
 func DialKCP(ctx context.Context, dest net.Destination) (internet.Connection, error) {
 	dest.Network = net.Network_UDP
-	log.Trace(newError("dialing mKCP to ", dest))
+	newError("dialing mKCP to ", dest).WriteToLog()
 
 	src := internet.DialerSourceFromContext(ctx)
 	rawConn, err := internet.DialSystem(ctx, src, dest)
@@ -67,25 +66,19 @@ func DialKCP(ctx context.Context, dest net.Destination) (internet.Connection, er
 	}
 
 	conv := uint16(atomic.AddUint32(&globalConv, 1))
-	session := NewConnection(conv, &ConnMetadata{
-		LocalAddr:  rawConn.LocalAddr(),
-		RemoteAddr: rawConn.RemoteAddr(),
+	session := NewConnection(ConnMetadata{
+		LocalAddr:    rawConn.LocalAddr(),
+		RemoteAddr:   rawConn.RemoteAddr(),
+		Conversation: conv,
 	}, writer, rawConn, kcpSettings)
 
 	go fetchInput(ctx, rawConn, reader, session)
 
 	var iConn internet.Connection = session
 
-	if securitySettings := internet.SecuritySettingsFromContext(ctx); securitySettings != nil {
-		switch securitySettings := securitySettings.(type) {
-		case *v2tls.Config:
-			if dest.Address.Family().IsDomain() {
-				securitySettings.OverrideServerNameIfEmpty(dest.Address.Domain())
-			}
-			config := securitySettings.GetTLSConfig()
-			tlsConn := tls.Client(iConn, config)
-			iConn = tlsConn
-		}
+	if config := v2tls.ConfigFromContext(ctx, v2tls.WithDestination(dest)); config != nil {
+		tlsConn := tls.Client(iConn, config.GetTLSConfig())
+		iConn = tlsConn
 	}
 
 	return iConn, nil

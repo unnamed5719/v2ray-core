@@ -4,7 +4,6 @@ import (
 	"context"
 	gotls "crypto/tls"
 
-	"v2ray.com/core/app/log"
 	"v2ray.com/core/common"
 	"v2ray.com/core/common/net"
 	"v2ray.com/core/common/retry"
@@ -28,7 +27,7 @@ func ListenTCP(ctx context.Context, address net.Address, port net.Port, addConn 
 	if err != nil {
 		return nil, err
 	}
-	log.Trace(newError("listening TCP on ", address, ":", port))
+	newError("listening TCP on ", address, ":", port).WriteToLog()
 	networkSettings := internet.TransportSettingsFromContext(ctx)
 	tcpSettings := networkSettings.(*Config)
 
@@ -37,12 +36,11 @@ func ListenTCP(ctx context.Context, address net.Address, port net.Port, addConn 
 		config:   tcpSettings,
 		addConn:  addConn,
 	}
-	if securitySettings := internet.SecuritySettingsFromContext(ctx); securitySettings != nil {
-		tlsConfig, ok := securitySettings.(*tls.Config)
-		if ok {
-			l.tlsConfig = tlsConfig.GetTLSConfig()
-		}
+
+	if config := tls.ConfigFromContext(ctx); config != nil {
+		l.tlsConfig = config.GetTLSConfig()
 	}
+
 	if tcpSettings.HeaderSettings != nil {
 		headerConfig, err := tcpSettings.HeaderSettings.GetInstance()
 		if err != nil {
@@ -75,7 +73,7 @@ func (v *TCPListener) KeepAccepting(ctx context.Context) {
 			return nil
 		})
 		if err != nil {
-			log.Trace(newError("failed to accepted raw connections").Base(err).AtWarning())
+			newError("failed to accepted raw connections").Base(err).AtWarning().WriteToLog()
 			continue
 		}
 
