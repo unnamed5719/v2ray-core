@@ -5,6 +5,7 @@ package inbound
 import (
 	"context"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,48 +26,71 @@ import (
 )
 
 type userByEmail struct {
-	sync.RWMutex
+	sync.Mutex
 	cache           map[string]*protocol.User
 	defaultLevel    uint32
 	defaultAlterIDs uint16
 }
 
-func newUserByEmail(users []*protocol.User, config *DefaultConfig) *userByEmail {
-	cache := make(map[string]*protocol.User)
-	for _, user := range users {
-		cache[user.Email] = user
-	}
+func newUserByEmail(config *DefaultConfig) *userByEmail {
 	return &userByEmail{
-		cache:           cache,
+		cache:           make(map[string]*protocol.User),
 		defaultLevel:    config.Level,
 		defaultAlterIDs: uint16(config.AlterId),
 	}
 }
 
+func (v *userByEmail) addNoLock(u *protocol.User) bool {
+	email := strings.ToLower(u.Email)
+	user, found := v.cache[email]
+	if found {
+		return false
+	}
+	v.cache[email] = user
+	return true
+}
+
+func (v *userByEmail) Add(u *protocol.User) bool {
+	v.Lock()
+	defer v.Unlock()
+
+	return v.addNoLock(u)
+}
+
 func (v *userByEmail) Get(email string) (*protocol.User, bool) {
-	var user *protocol.User
-	var found bool
-	v.RLock()
-	user, found = v.cache[email]
-	v.RUnlock()
+	email = strings.ToLower(email)
+
+	v.Lock()
+	defer v.Unlock()
+
+	user, found := v.cache[email]
 	if !found {
-		v.Lock()
-		user, found = v.cache[email]
-		if !found {
-			account := &vmess.Account{
-				Id:      uuid.New().String(),
-				AlterId: uint32(v.defaultAlterIDs),
-			}
-			user = &protocol.User{
-				Level:   v.defaultLevel,
-				Email:   email,
-				Account: serial.ToTypedMessage(account),
-			}
-			v.cache[email] = user
+		id := uuid.New()
+		account := &vmess.Account{
+			Id:      id.String(),
+			AlterId: uint32(v.defaultAlterIDs),
 		}
-		v.Unlock()
+		user = &protocol.User{
+			Level:   v.defaultLevel,
+			Email:   email,
+			Account: serial.ToTypedMessage(account),
+		}
+		v.cache[email] = user
 	}
 	return user, found
+}
+
+func (v *userByEmail) Remove(email string) bool {
+	email = strings.ToLower(email)
+
+	v.Lock()
+	defer v.Unlock()
+
+	if _, found := v.cache[email]; !found {
+		return false
+	}
+	delete(v.cache, email)
+	return true
 }
 
 // Handler is an inbound connection handler that handles messages in VMess protocol.
@@ -81,13 +105,6 @@ type Handler struct {
 
 // New creates a new VMess inbound handler.
 func New(ctx context.Context, config *Config) (*Handler, error) {
-	allowedClients := vmess.NewTimedUserValidator(ctx, protocol.DefaultIDHash)
-	for _, user := range config.User {
-		if err := allowedClients.Add(user); err != nil {
-			return nil, newError("failed to initiate user").Base(err)
-		}
-	}
-
 	v := core.FromContext(ctx)
 	if v == nil {
 		return nil, newError("V is not in context.")
@@ -96,13 +113,27 @@ func New(ctx context.Context, config *Config) (*Handler, error) {
 	handler := &Handler{
 		policyManager:         v.PolicyManager(),
 		inboundHandlerManager: v.InboundHandlerManager(),
-		clients:               allowedClients,
+		clients:               vmess.NewTimedUserValidator(protocol.DefaultIDHash),
 		detours:               config.Detour,
-		usersByEmail:          newUserByEmail(config.User, config.GetDefaultValue()),
-		sessionHistory:        encoding.NewSessionHistory(ctx),
+		usersByEmail:          newUserByEmail(config.GetDefaultValue()),
+		sessionHistory:        encoding.NewSessionHistory(),
+	}
+
+	for _, user := range config.User {
+		if err := handler.AddUser(ctx, user); err != nil {
+			return nil, newError("failed to initiate user").Base(err)
+		}
 	}
 
 	return handler, nil
+}
+
+// Close implements common.Closable.
+func (h *Handler) Close() error {
+	common.Close(h.clients)
+	common.Close(h.sessionHistory)
+	common.Close(h.usersByEmail)
+	return nil
 }
 
 // Network implements proxy.Inbound.Network().
@@ -118,6 +149,24 @@ func (h *Handler) GetUser(email string) *protocol.User {
 		h.clients.Add(user)
 	}
 	return user
+}
+
+func (h *Handler) AddUser(ctx context.Context, user *protocol.User) error {
+	if len(user.Email) > 0 && !h.usersByEmail.Add(user) {
+		return newError("User ", user.Email, " already exists.")
+	}
+	return h.clients.Add(user)
+}
+
+func (h *Handler) RemoveUser(ctx context.Context, email string) error {
+	if len(email) == 0 {
+		return newError("Email must not be empty.")
+	}
+	if !h.usersByEmail.Remove(email) {
+		return newError("User ", email, " not found.")
+	}
+	h.clients.Remove(email)
+	return nil
 }
 
 func transferRequest(timer signal.ActivityUpdater, session *encoding.ServerSession, request *protocol.RequestHeader, input io.Reader, output ray.OutputStream) error {
@@ -185,14 +234,9 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 				Status: log.AccessRejected,
 				Reason: err,
 			})
-			newError("invalid request from ", connection.RemoteAddr(), ": ", err).AtInfo().WriteToLog()
+			err = newError("invalid request from ", connection.RemoteAddr()).Base(err).AtInfo()
 		}
 		return err
-	}
-
-	if request.Command == protocol.RequestCommandMux {
-		request.Address = net.DomainAddress("v1.mux.com")
-		request.Port = net.Port(0)
 	}
 
 	log.Record(&log.AccessMessage{
@@ -252,7 +296,7 @@ func (h *Handler) generateCommand(ctx context.Context, request *protocol.Request
 		if h.inboundHandlerManager != nil {
 			handler, err := h.inboundHandlerManager.GetHandler(ctx, tag)
 			if err != nil {
-				newError("failed to get detour handler: ", tag, err).AtWarning().WriteToLog()
+				newError("failed to get detour handler: ", tag).Base(err).AtWarning().WriteToLog()
 				return nil
 			}
 			proxyHandler, port, availableMin := handler.GetRandomInboundProxy()

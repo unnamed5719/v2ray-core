@@ -13,9 +13,11 @@ import (
 
 // Manager is to manage all outbound handlers.
 type Manager struct {
-	sync.RWMutex
-	defaultHandler core.OutboundHandler
-	taggedHandler  map[string]core.OutboundHandler
+	access           sync.RWMutex
+	defaultHandler   core.OutboundHandler
+	taggedHandler    map[string]core.OutboundHandler
+	untaggedHandlers []core.OutboundHandler
+	running          bool
 }
 
 // New creates a new Manager.
@@ -33,33 +35,71 @@ func New(ctx context.Context, config *proxyman.OutboundConfig) (*Manager, error)
 	return m, nil
 }
 
-// Start implements Application.Start
-func (*Manager) Start() error { return nil }
+// Start implements core.Feature
+func (m *Manager) Start() error {
+	m.access.Lock()
+	defer m.access.Unlock()
 
-// Close implements Application.Close
-func (*Manager) Close() {}
+	m.running = true
 
+	for _, h := range m.taggedHandler {
+		if err := h.Start(); err != nil {
+			return err
+		}
+	}
+
+	for _, h := range m.untaggedHandlers {
+		if err := h.Start(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Close implements core.Feature
+func (m *Manager) Close() error {
+	m.access.Lock()
+	defer m.access.Unlock()
+
+	m.running = false
+
+	for _, h := range m.taggedHandler {
+		h.Close()
+	}
+
+	for _, h := range m.untaggedHandlers {
+		h.Close()
+	}
+
+	return nil
+}
+
+// GetDefaultHandler implements core.OutboundHandlerManager.
 func (m *Manager) GetDefaultHandler() core.OutboundHandler {
-	m.RLock()
-	defer m.RUnlock()
+	m.access.RLock()
+	defer m.access.RUnlock()
+
 	if m.defaultHandler == nil {
 		return nil
 	}
 	return m.defaultHandler
 }
 
+// GetHandler implements core.OutboundHandlerManager.
 func (m *Manager) GetHandler(tag string) core.OutboundHandler {
-	m.RLock()
-	defer m.RUnlock()
+	m.access.RLock()
+	defer m.access.RUnlock()
 	if handler, found := m.taggedHandler[tag]; found {
 		return handler
 	}
 	return nil
 }
 
+// AddHandler implements core.OutboundHandlerManager.
 func (m *Manager) AddHandler(ctx context.Context, handler core.OutboundHandler) error {
-	m.Lock()
-	defer m.Unlock()
+	m.access.Lock()
+	defer m.access.Unlock()
 
 	if m.defaultHandler == nil {
 		m.defaultHandler = handler
@@ -68,6 +108,28 @@ func (m *Manager) AddHandler(ctx context.Context, handler core.OutboundHandler) 
 	tag := handler.Tag()
 	if len(tag) > 0 {
 		m.taggedHandler[tag] = handler
+	} else {
+		m.untaggedHandlers = append(m.untaggedHandlers, handler)
+	}
+
+	if m.running {
+		return handler.Start()
+	}
+
+	return nil
+}
+
+// RemoveHandler implements core.OutboundHandlerManager.
+func (m *Manager) RemoveHandler(ctx context.Context, tag string) error {
+	if len(tag) == 0 {
+		return core.ErrNoClue
+	}
+	m.access.Lock()
+	defer m.access.Unlock()
+
+	delete(m.taggedHandler, tag)
+	if m.defaultHandler.Tag() == tag {
+		m.defaultHandler = nil
 	}
 
 	return nil

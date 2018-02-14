@@ -21,6 +21,7 @@ type InboundHandler interface {
 
 // OutboundHandler is the interface for handlers that process outbound connections.
 type OutboundHandler interface {
+	common.Runnable
 	Tag() string
 	Dispatch(ctx context.Context, outboundRay ray.OutboundRay)
 }
@@ -32,6 +33,9 @@ type InboundHandlerManager interface {
 	GetHandler(ctx context.Context, tag string) (InboundHandler, error)
 	// AddHandler adds the given handler into this InboundHandlerManager.
 	AddHandler(ctx context.Context, handler InboundHandler) error
+
+	// RemoveHandler removes a handler from InboundHandlerManager.
+	RemoveHandler(ctx context.Context, tag string) error
 }
 
 type syncInboundHandlerManager struct {
@@ -72,13 +76,11 @@ func (m *syncInboundHandlerManager) Start() error {
 	return m.InboundHandlerManager.Start()
 }
 
-func (m *syncInboundHandlerManager) Close() {
+func (m *syncInboundHandlerManager) Close() error {
 	m.RLock()
 	defer m.RUnlock()
 
-	if m.InboundHandlerManager != nil {
-		m.InboundHandlerManager.Close()
-	}
+	return common.Close(m.InboundHandlerManager)
 }
 
 func (m *syncInboundHandlerManager) Set(manager InboundHandlerManager) {
@@ -97,6 +99,9 @@ type OutboundHandlerManager interface {
 	GetDefaultHandler() OutboundHandler
 	// AddHandler adds a handler into this OutboundHandlerManager.
 	AddHandler(ctx context.Context, handler OutboundHandler) error
+
+	// RemoveHandler removes a handler from OutboundHandlerManager.
+	RemoveHandler(ctx context.Context, tag string) error
 }
 
 type syncOutboundHandlerManager struct {
@@ -148,13 +153,11 @@ func (m *syncOutboundHandlerManager) Start() error {
 	return m.OutboundHandlerManager.Start()
 }
 
-func (m *syncOutboundHandlerManager) Close() {
+func (m *syncOutboundHandlerManager) Close() error {
 	m.RLock()
 	defer m.RUnlock()
 
-	if m.OutboundHandlerManager != nil {
-		m.OutboundHandlerManager.Close()
-	}
+	return common.Close(m.OutboundHandlerManager)
 }
 
 func (m *syncOutboundHandlerManager) Set(manager OutboundHandlerManager) {

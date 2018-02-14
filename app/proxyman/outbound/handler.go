@@ -7,6 +7,7 @@ import (
 	"v2ray.com/core"
 	"v2ray.com/core/app/proxyman"
 	"v2ray.com/core/app/proxyman/mux"
+	"v2ray.com/core/common"
 	"v2ray.com/core/common/errors"
 	"v2ray.com/core/common/net"
 	"v2ray.com/core/proxy"
@@ -50,9 +51,14 @@ func NewHandler(ctx context.Context, config *core.OutboundHandlerConfig) (*Handl
 		return nil, err
 	}
 
-	proxyHandler, err := proxy.CreateOutboundHandler(ctx, proxyConfig)
+	rawProxyHandler, err := common.CreateObject(ctx, proxyConfig)
 	if err != nil {
 		return nil, err
+	}
+
+	proxyHandler, ok := rawProxyHandler.(proxy.Outbound)
+	if !ok {
+		return nil, newError("not an outbound handler")
 	}
 
 	if h.senderSettings != nil && h.senderSettings.MultiplexSettings != nil && h.senderSettings.MultiplexSettings.Enabled {
@@ -67,6 +73,7 @@ func NewHandler(ctx context.Context, config *core.OutboundHandlerConfig) (*Handl
 	return h, nil
 }
 
+// Tag implements core.OutboundHandler.
 func (h *Handler) Tag() string {
 	return h.config.Tag
 }
@@ -92,8 +99,6 @@ func (h *Handler) Dispatch(ctx context.Context, outboundRay ray.OutboundRay) {
 	}
 }
 
-var zeroAddr net.Addr = &net.TCPAddr{IP: []byte{0, 0, 0, 0}, Port: 0}
-
 // Dial implements proxy.Dialer.Dial().
 func (h *Handler) Dial(ctx context.Context, dest net.Destination) (internet.Connection, error) {
 	if h.senderSettings != nil {
@@ -105,7 +110,7 @@ func (h *Handler) Dial(ctx context.Context, dest net.Destination) (internet.Conn
 				ctx = proxy.ContextWithTarget(ctx, dest)
 				stream := ray.NewRay(ctx)
 				go handler.Dispatch(ctx, stream)
-				return ray.NewConnection(stream, zeroAddr, zeroAddr), nil
+				return ray.NewConnection(stream.InboundOutput(), stream.InboundInput()), nil
 			}
 
 			newError("failed to get outbound handler with tag: ", tag).AtWarning().WriteToLog()
@@ -121,4 +126,20 @@ func (h *Handler) Dial(ctx context.Context, dest net.Destination) (internet.Conn
 	}
 
 	return internet.Dial(ctx, dest)
+}
+
+// GetOutbound implements proxy.GetOutbound.
+func (h *Handler) GetOutbound() proxy.Outbound {
+	return h.proxy
+}
+
+// Start implements common.Runnable.
+func (h *Handler) Start() error {
+	return nil
+}
+
+// Close implements common.Runnable.
+func (h *Handler) Close() error {
+	common.Close(h.mux)
+	return nil
 }

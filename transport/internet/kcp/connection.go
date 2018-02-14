@@ -258,6 +258,7 @@ func (c *Connection) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		}
 		mb := c.receivingWorker.ReadMultiBuffer()
 		if !mb.IsEmpty() {
+			c.dataUpdater.WakeUp()
 			return mb, nil
 		}
 
@@ -307,6 +308,7 @@ func (c *Connection) Read(b []byte) (int, error) {
 		}
 		nBytes := c.receivingWorker.Read(b)
 		if nBytes > 0 {
+			c.dataUpdater.WakeUp()
 			return nBytes, nil
 		}
 
@@ -338,10 +340,15 @@ func (c *Connection) waitForDataOutput() error {
 
 // Write implements io.Writer.
 func (c *Connection) Write(b []byte) (int, error) {
-	totalWritten := 0
+	updatePending := false
+	defer func() {
+		if updatePending {
+			c.dataUpdater.WakeUp()
+		}
+	}()
 
 	for {
-		dataWritten := false
+		totalWritten := 0
 		for {
 			if c == nil || c.State() != StateActive {
 				return totalWritten, io.ErrClosedPipe
@@ -354,15 +361,16 @@ func (c *Connection) Write(b []byte) (int, error) {
 				break
 			}
 
-			dataWritten = true
+			updatePending = true
 
 			if totalWritten == len(b) {
 				return totalWritten, nil
 			}
 		}
 
-		if dataWritten {
+		if updatePending {
 			c.dataUpdater.WakeUp()
+			updatePending = false
 		}
 
 		if err := c.waitForDataOutput(); err != nil {
@@ -375,8 +383,14 @@ func (c *Connection) Write(b []byte) (int, error) {
 func (c *Connection) WriteMultiBuffer(mb buf.MultiBuffer) error {
 	defer mb.Release()
 
+	updatePending := false
+	defer func() {
+		if updatePending {
+			c.dataUpdater.WakeUp()
+		}
+	}()
+
 	for {
-		dataWritten := false
 		for {
 			if c == nil || c.State() != StateActive {
 				return io.ErrClosedPipe
@@ -387,14 +401,15 @@ func (c *Connection) WriteMultiBuffer(mb buf.MultiBuffer) error {
 			}) {
 				break
 			}
-			dataWritten = true
+			updatePending = true
 			if mb.IsEmpty() {
 				return nil
 			}
 		}
 
-		if dataWritten {
+		if updatePending {
 			c.dataUpdater.WakeUp()
+			updatePending = false
 		}
 
 		if err := c.waitForDataOutput(); err != nil {
@@ -572,7 +587,7 @@ func (c *Connection) Input(segments []Segment) {
 				c.dataInput.Signal()
 				c.dataOutput.Signal()
 			}
-			c.sendingWorker.ProcessReceivingNext(seg.ReceivinNext)
+			c.sendingWorker.ProcessReceivingNext(seg.ReceivingNext)
 			c.receivingWorker.ProcessSendingNext(seg.SendingNext)
 			c.roundTrip.UpdatePeerRTO(seg.PeerRTO, current)
 			seg.Release()
@@ -628,7 +643,7 @@ func (c *Connection) Ping(current uint32, cmd Command) {
 	seg := NewCmdOnlySegment()
 	seg.Conv = c.meta.Conversation
 	seg.Cmd = cmd
-	seg.ReceivinNext = c.receivingWorker.NextNumber()
+	seg.ReceivingNext = c.receivingWorker.NextNumber()
 	seg.SendingNext = c.sendingWorker.FirstUnacknowledged()
 	seg.PeerRTO = c.roundTrip.Timeout()
 	if c.State() == StateReadyToClose {
