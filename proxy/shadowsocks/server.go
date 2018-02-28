@@ -39,11 +39,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		config:  config,
 		user:    config.GetUser(),
 		account: account,
-		v:       core.FromContext(ctx),
-	}
-
-	if s.v == nil {
-		return nil, newError("V is not in context.")
+		v:       core.MustFromContext(ctx),
 	}
 
 	return s, nil
@@ -84,7 +80,7 @@ func (s *Server) handlerUDPPayload(ctx context.Context, conn internet.Connection
 			request, data, err := DecodeUDPPacket(s.user, payload)
 			if err != nil {
 				if source, ok := proxy.SourceFromContext(ctx); ok {
-					newError("dropping invalid UDP packet from: ", source).Base(err).WriteToLog()
+					newError("dropping invalid UDP packet from: ", source).Base(err).WithContext(ctx).WriteToLog()
 					log.Record(&log.AccessMessage{
 						From:   source,
 						To:     "",
@@ -97,13 +93,13 @@ func (s *Server) handlerUDPPayload(ctx context.Context, conn internet.Connection
 			}
 
 			if request.Option.Has(RequestOptionOneTimeAuth) && s.account.OneTimeAuth == Account_Disabled {
-				newError("client payload enables OTA but server doesn't allow it").WriteToLog()
+				newError("client payload enables OTA but server doesn't allow it").WithContext(ctx).WriteToLog()
 				payload.Release()
 				continue
 			}
 
 			if !request.Option.Has(RequestOptionOneTimeAuth) && s.account.OneTimeAuth == Account_Enabled {
-				newError("client payload disables OTA but server forces it").WriteToLog()
+				newError("client payload disables OTA but server forces it").WithContext(ctx).WriteToLog()
 				payload.Release()
 				continue
 			}
@@ -117,15 +113,14 @@ func (s *Server) handlerUDPPayload(ctx context.Context, conn internet.Connection
 					Reason: "",
 				})
 			}
-			newError("tunnelling request to ", dest).WriteToLog()
+			newError("tunnelling request to ", dest).WithContext(ctx).WriteToLog()
 
 			ctx = protocol.ContextWithUser(ctx, request.User)
 			udpServer.Dispatch(ctx, dest, data, func(payload *buf.Buffer) {
-				defer payload.Release()
-
 				data, err := EncodeUDPPacket(request, payload.Bytes())
+				payload.Release()
 				if err != nil {
-					newError("failed to encode UDP packet").Base(err).AtWarning().WriteToLog()
+					newError("failed to encode UDP packet").Base(err).AtWarning().WithContext(ctx).WriteToLog()
 					return
 				}
 				defer data.Release()
@@ -163,7 +158,7 @@ func (s *Server) handleConnection(ctx context.Context, conn internet.Connection,
 		Status: log.AccessAccepted,
 		Reason: "",
 	})
-	newError("tunnelling request to ", dest).WriteToLog()
+	newError("tunnelling request to ", dest).WithContext(ctx).WriteToLog()
 
 	ctx = protocol.ContextWithUser(ctx, request.User)
 
@@ -175,6 +170,8 @@ func (s *Server) handleConnection(ctx context.Context, conn internet.Connection,
 	}
 
 	responseDone := signal.ExecuteAsync(func() error {
+		defer timer.SetTimeout(sessionPolicy.Timeouts.UplinkOnly)
+
 		bufferedWriter := buf.NewBufferedWriter(buf.NewWriter(conn))
 		responseWriter, err := WriteTCPResponse(request, bufferedWriter)
 		if err != nil {
@@ -198,18 +195,17 @@ func (s *Server) handleConnection(ctx context.Context, conn internet.Connection,
 			return newError("failed to transport all TCP response").Base(err)
 		}
 
-		timer.SetTimeout(sessionPolicy.Timeouts.UplinkOnly)
-
 		return nil
 	})
 
 	requestDone := signal.ExecuteAsync(func() error {
+		defer timer.SetTimeout(sessionPolicy.Timeouts.DownlinkOnly)
 		defer ray.InboundInput().Close()
 
 		if err := buf.Copy(bodyReader, ray.InboundInput(), buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transport all TCP request").Base(err)
 		}
-		timer.SetTimeout(sessionPolicy.Timeouts.DownlinkOnly)
+
 		return nil
 	})
 

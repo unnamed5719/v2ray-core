@@ -22,19 +22,20 @@ type Commander struct {
 }
 
 func NewCommander(ctx context.Context, config *Config) (*Commander, error) {
-	v := core.FromContext(ctx)
-	if v == nil {
-		return nil, newError("V is not in context.")
-	}
+	v := core.MustFromContext(ctx)
 	c := &Commander{
 		config: *config,
 		ohm:    v.OutboundHandlerManager(),
 		v:      v,
 	}
-	if err := v.RegisterFeature((*core.Commander)(nil), c); err != nil {
+	if err := v.RegisterFeature((*Commander)(nil), c); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+func (c *Commander) Type() interface{} {
+	return (*Commander)(nil)
 }
 
 func (c *Commander) Start() error {

@@ -1,4 +1,6 @@
-package main
+package json
+
+//go:generate go run $GOPATH/src/v2ray.com/core/common/errors/errorgen/main.go -pkg json -path Main,Json
 
 import (
 	"context"
@@ -45,7 +47,7 @@ func jsonToProto(input io.Reader) (*core.Config, error) {
 	var config *core.Config
 
 	loadTask := signal.ExecuteAsync(func() error {
-		c, err := core.LoadConfig(core.ConfigFormat_Protobuf, stdoutReader)
+		c, err := core.LoadConfig("protobuf", "", stdoutReader)
 		if err != nil {
 			return err
 		}
@@ -65,11 +67,15 @@ func jsonToProto(input io.Reader) (*core.Config, error) {
 }
 
 func init() {
-	common.Must(core.RegisterConfigLoader(core.ConfigFormat_JSON, func(input io.Reader) (*core.Config, error) {
-		config, err := jsonToProto(input)
-		if err != nil {
-			return nil, newError("failed to execute v2ctl to convert config file.").Base(err).AtWarning()
-		}
-		return config, nil
+	common.Must(core.RegisterConfigLoader(&core.ConfigFormat{
+		Name:      "JSON",
+		Extension: []string{"json"},
+		Loader: func(input io.Reader) (*core.Config, error) {
+			config, err := jsonToProto(input)
+			if err != nil {
+				return nil, newError("failed to execute v2ctl to convert config file.").Base(err).AtWarning()
+			}
+			return config, nil
+		},
 	}))
 }

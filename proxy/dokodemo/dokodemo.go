@@ -28,11 +28,7 @@ func New(ctx context.Context, config *Config) (*DokodemoDoor, error) {
 	if config.NetworkList == nil || config.NetworkList.Size() == 0 {
 		return nil, newError("no network specified")
 	}
-	v := core.FromContext(ctx)
-	if v == nil {
-		return nil, newError("V is not in context.")
-	}
-
+	v := core.MustFromContext(ctx)
 	d := &DokodemoDoor{
 		config:        config,
 		address:       config.GetPredefinedAddress(),
@@ -57,7 +53,7 @@ func (d *DokodemoDoor) policy() core.Policy {
 }
 
 func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn internet.Connection, dispatcher core.Dispatcher) error {
-	newError("processing connection from: ", conn.RemoteAddr()).AtDebug().WriteToLog()
+	newError("processing connection from: ", conn.RemoteAddr()).AtDebug().WithContext(ctx).WriteToLog()
 	dest := net.Destination{
 		Network: network,
 		Address: d.address,
@@ -82,6 +78,7 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 
 	requestDone := signal.ExecuteAsync(func() error {
 		defer inboundRay.InboundInput().Close()
+		defer timer.SetTimeout(d.policy().Timeouts.DownlinkOnly)
 
 		chunkReader := buf.NewReader(conn)
 
@@ -89,12 +86,12 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 			return newError("failed to transport request").Base(err)
 		}
 
-		timer.SetTimeout(d.policy().Timeouts.DownlinkOnly)
-
 		return nil
 	})
 
 	responseDone := signal.ExecuteAsync(func() error {
+		defer timer.SetTimeout(d.policy().Timeouts.UplinkOnly)
+
 		var writer buf.Writer
 		if network == net.Network_TCP {
 			writer = buf.NewWriter(conn)
@@ -115,8 +112,6 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 		if err := buf.Copy(inboundRay.InboundOutput(), writer, buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transport response").Base(err)
 		}
-
-		timer.SetTimeout(d.policy().Timeouts.UplinkOnly)
 
 		return nil
 	})

@@ -84,9 +84,14 @@ func (m *syncInboundHandlerManager) Close() error {
 }
 
 func (m *syncInboundHandlerManager) Set(manager InboundHandlerManager) {
+	if manager == nil {
+		return
+	}
+
 	m.Lock()
 	defer m.Unlock()
 
+	common.Close(m.InboundHandlerManager)
 	m.InboundHandlerManager = manager
 }
 
@@ -161,8 +166,13 @@ func (m *syncOutboundHandlerManager) Close() error {
 }
 
 func (m *syncOutboundHandlerManager) Set(manager OutboundHandlerManager) {
+	if manager == nil {
+		return
+	}
+
 	m.Lock()
 	defer m.Unlock()
 
+	common.Close(m.OutboundHandlerManager)
 	m.OutboundHandlerManager = manager
 }

@@ -32,12 +32,8 @@ func NewClient(ctx context.Context, config *ClientConfig) (*Client, error) {
 	}
 	client := &Client{
 		serverPicker: protocol.NewRoundRobinServerPicker(serverList),
-		v:            core.FromContext(ctx),
+		v:            core.MustFromContext(ctx),
 	}
-	if client.v == nil {
-		return nil, newError("V is not in context.")
-	}
-
 	return client, nil
 }
 
@@ -115,7 +111,6 @@ func (v *Client) Process(ctx context.Context, outboundRay ray.OutboundRay, diale
 		})
 
 		responseDone := signal.ExecuteAsync(func() error {
-			defer outboundRay.OutboundOutput().Close()
 			defer timer.SetTimeout(sessionPolicy.Timeouts.UplinkOnly)
 
 			responseReader, err := ReadTCPResponse(user, conn)
@@ -150,7 +145,6 @@ func (v *Client) Process(ctx context.Context, outboundRay ray.OutboundRay, diale
 		})
 
 		responseDone := signal.ExecuteAsync(func() error {
-			defer outboundRay.OutboundOutput().Close()
 			defer timer.SetTimeout(sessionPolicy.Timeouts.UplinkOnly)
 
 			reader := &UDPReader{

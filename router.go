@@ -54,9 +54,14 @@ func (d *syncDispatcher) Close() error {
 }
 
 func (d *syncDispatcher) Set(disp Dispatcher) {
+	if disp == nil {
+		return
+	}
+
 	d.Lock()
 	defer d.Unlock()
 
+	common.Close(d.Dispatcher)
 	d.Dispatcher = disp
 }
 
@@ -108,8 +113,13 @@ func (r *syncRouter) Close() error {
 }
 
 func (r *syncRouter) Set(router Router) {
+	if router == nil {
+		return
+	}
+
 	r.Lock()
 	defer r.Unlock()
 
+	common.Close(r.Router)
 	r.Router = router
 }
