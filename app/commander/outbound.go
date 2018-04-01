@@ -27,7 +27,7 @@ func (l *OutboundListener) add(conn net.Conn) {
 func (l *OutboundListener) Accept() (net.Conn, error) {
 	select {
 	case <-l.done.C():
-		return nil, newError("listern closed")
+		return nil, newError("listen closed")
 	case c := <-l.buffer:
 		return c, nil
 	}
@@ -76,8 +76,6 @@ func (co *CommanderOutbound) Dispatch(ctx context.Context, r ray.OutboundRay) {
 	co.listener.add(c)
 	co.access.RUnlock()
 	<-closeSignal.Wait()
-
-	return
 }
 
 func (co *CommanderOutbound) Tag() string {

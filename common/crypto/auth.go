@@ -124,12 +124,7 @@ func (r *AuthenticationReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		return nil, io.EOF
 	}
 
-	var b *buf.Buffer
-	if size <= buf.Size {
-		b = buf.New()
-	} else {
-		b = buf.NewLocal(size)
-	}
+	b := buf.NewSize(uint32(size))
 	if err := b.Reset(buf.ReadFullFrom(r.reader, size)); err != nil {
 		b.Release()
 		return nil, err
@@ -209,7 +204,7 @@ func (w *AuthenticationWriter) writeStream(mb buf.MultiBuffer) error {
 func (w *AuthenticationWriter) writePacket(mb buf.MultiBuffer) error {
 	defer mb.Release()
 
-	mb2Write := buf.NewMultiBufferCap(len(mb) * 2)
+	mb2Write := buf.NewMultiBufferCap(len(mb) + 1)
 
 	for {
 		b := mb.SplitFirst()

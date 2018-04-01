@@ -17,7 +17,7 @@ func ReadMetadata(reader io.Reader) (*FrameMetadata, error) {
 		return nil, newError("invalid metalen ", metaLen).AtError()
 	}
 
-	b := buf.New()
+	b := buf.NewSize(uint32(metaLen))
 	defer b.Release()
 
 	if err := b.Reset(buf.ReadFullFrom(reader, int(metaLen))); err != nil {
@@ -51,12 +51,7 @@ func (r *PacketReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		return nil, err
 	}
 
-	var b *buf.Buffer
-	if size <= buf.Size {
-		b = buf.New()
-	} else {
-		b = buf.NewLocal(int(size))
-	}
+	b := buf.NewSize(uint32(size))
 	if err := b.AppendSupplier(buf.ReadFullFrom(r.reader, int(size))); err != nil {
 		b.Release()
 		return nil, err
@@ -68,7 +63,7 @@ func (r *PacketReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 // StreamReader reads Mux frame as a stream.
 type StreamReader struct {
 	reader   *buf.BufferedReader
-	leftOver int
+	leftOver int32
 }
 
 // NewStreamReader creates a new StreamReader.
@@ -91,10 +86,10 @@ func (r *StreamReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		if err != nil {
 			return nil, err
 		}
-		r.leftOver = int(size)
+		r.leftOver = int32(size)
 	}
 
-	mb, err := r.reader.ReadAtMost(r.leftOver)
-	r.leftOver -= mb.Len()
+	mb, err := r.reader.ReadAtMost(int(r.leftOver))
+	r.leftOver -= int32(mb.Len())
 	return mb, err
 }

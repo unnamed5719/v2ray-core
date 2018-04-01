@@ -57,7 +57,9 @@ func NewMultiBufferValue(b ...*Buffer) MultiBuffer {
 
 // Append appends buffer to the end of this MultiBuffer
 func (mb *MultiBuffer) Append(buf *Buffer) {
-	*mb = append(*mb, buf)
+	if buf != nil {
+		*mb = append(*mb, buf)
+	}
 }
 
 // AppendMulti appends a MultiBuffer to the end of this one.
@@ -167,7 +169,7 @@ func (mb *MultiBuffer) SliceBySize(size int) MultiBuffer {
 	}
 	*mb = (*mb)[endIndex:]
 	if endIndex == 0 && len(*mb) > 0 {
-		b := New()
+		b := NewSize(uint32(size))
 		common.Must(b.Reset(ReadFullFrom((*mb)[0], size)))
 		return NewMultiBufferValue(b)
 	}

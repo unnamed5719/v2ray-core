@@ -55,6 +55,19 @@ func (p *AddressParser) readPort(b *buf.Buffer, reader io.Reader) (net.Port, err
 	return net.PortFromBytes(b.BytesFrom(-2)), nil
 }
 
+func maybeIPPrefix(b byte) bool {
+	return b == '[' || (b >= '0' && b <= '9')
+}
+
+func isValidDomain(d string) bool {
+	for _, c := range d {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '.' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *AddressParser) readAddress(b *buf.Buffer, reader io.Reader) (net.Address, error) {
 	if err := b.AppendSupplier(buf.ReadFullFrom(reader, 1)); err != nil {
 		return nil, err
@@ -89,7 +102,17 @@ func (p *AddressParser) readAddress(b *buf.Buffer, reader io.Reader) (net.Addres
 		if err := b.AppendSupplier(buf.ReadFullFrom(reader, domainLength)); err != nil {
 			return nil, err
 		}
-		return net.DomainAddress(string(b.BytesFrom(-domainLength))), nil
+		domain := string(b.BytesFrom(-domainLength))
+		if maybeIPPrefix(domain[0]) {
+			addr := net.ParseAddress(domain)
+			if addr.Family().IsIPv4() || addrFamily.IsIPv6() {
+				return addr, nil
+			}
+		}
+		if !isValidDomain(domain) {
+			return nil, newError("invalid domain name: ", domain)
+		}
+		return net.DomainAddress(domain), nil
 	default:
 		panic("impossible case")
 	}
@@ -127,10 +150,8 @@ func (p *AddressParser) ReadAddressPort(buffer *buf.Buffer, input io.Reader) (ne
 }
 
 func (p *AddressParser) writePort(writer io.Writer, port net.Port) error {
-	if _, err := writer.Write(port.Bytes(nil)); err != nil {
-		return err
-	}
-	return nil
+	_, err := writer.Write(port.Bytes(nil))
+	return err
 }
 
 func (p *AddressParser) writeAddress(writer io.Writer, address net.Address) error {
@@ -149,7 +170,7 @@ func (p *AddressParser) writeAddress(writer io.Writer, address net.Address) erro
 		}
 	case net.AddressFamilyDomain:
 		domain := address.Domain()
-		if IsDomainTooLong(domain) {
+		if isDomainTooLong(domain) {
 			return newError("Super long domain is not supported: ", domain)
 		}
 		if _, err := writer.Write([]byte{tb, byte(len(domain))}); err != nil {
