@@ -26,7 +26,7 @@ func (l *Listener) Addr() net.Addr {
 }
 
 func (l *Listener) Close() error {
-	return l.server.Shutdown(context.Background())
+	return l.server.Close()
 }
 
 type flushWriter struct {
@@ -63,15 +63,28 @@ func (l *Listener) ServeHTTP(writer http.ResponseWriter, request *http.Request) 
 	if f, ok := writer.(http.Flusher); ok {
 		f.Flush()
 	}
+
+	remoteAddr := l.Addr()
+	dest, err := net.ParseDestination(request.RemoteAddr)
+	if err != nil {
+		newError("failed to parse request remote addr: ", request.RemoteAddr).Base(err).WriteToLog()
+	} else {
+		remoteAddr = &net.TCPAddr{
+			IP:   dest.Address.IP(),
+			Port: int(dest.Port),
+		}
+	}
+
 	done := signal.NewDone()
-	l.handler(&Connection{
-		Reader: request.Body,
-		Writer: flushWriter{w: writer, d: done},
-		Closer: common.NewChainedClosable(done, request.Body),
-		Local:  l.Addr(),
-		Remote: l.Addr(),
-	})
-	<-done.C()
+	conn := net.NewConnection(
+		net.ConnectionOutput(request.Body),
+		net.ConnectionInput(flushWriter{w: writer, d: done}),
+		net.ConnectionOnClose(common.NewChainedClosable(done, request.Body)),
+		net.ConnectionLocalAddr(l.Addr()),
+		net.ConnectionRemoteAddr(remoteAddr),
+	)
+	l.handler(conn)
+	<-done.Wait()
 }
 
 func Listen(ctx context.Context, address net.Address, port net.Port, handler internet.ConnHandler) (internet.Listener, error) {

@@ -5,7 +5,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 
 	"v2ray.com/core"
 	"v2ray.com/core/common/platform"
+	"v2ray.com/core/main/confloader"
 	_ "v2ray.com/core/main/distro/all"
 )
 
@@ -60,18 +60,12 @@ func GetConfigFormat() string {
 
 func startV2Ray() (core.Server, error) {
 	configFile := getConfigFilePath()
-	var configInput io.Reader
-	if configFile == "stdin:" {
-		configInput = os.Stdin
-	} else {
-		fixedFile := os.ExpandEnv(configFile)
-		file, err := os.Open(fixedFile)
-		if err != nil {
-			return nil, newError("config file not readable").Base(err)
-		}
-		defer file.Close()
-		configInput = file
+	configInput, err := confloader.LoadConfig(configFile)
+	if err != nil {
+		return nil, newError("failed to load config: ", configFile).Base(err)
 	}
+	defer configInput.Close()
+
 	config, err := core.LoadConfig(GetConfigFormat(), configFile, configInput)
 	if err != nil {
 		return nil, newError("failed to read config file: ", configFile).Base(err)

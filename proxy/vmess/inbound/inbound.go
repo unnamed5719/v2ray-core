@@ -22,7 +22,7 @@ import (
 	"v2ray.com/core/proxy/vmess"
 	"v2ray.com/core/proxy/vmess/encoding"
 	"v2ray.com/core/transport/internet"
-	"v2ray.com/core/transport/ray"
+	"v2ray.com/core/transport/pipe"
 )
 
 type userByEmail struct {
@@ -97,7 +97,7 @@ func (v *userByEmail) Remove(email string) bool {
 type Handler struct {
 	policyManager         core.PolicyManager
 	inboundHandlerManager core.InboundHandlerManager
-	clients               protocol.UserValidator
+	clients               *vmess.TimedUserValidator
 	usersByEmail          *userByEmail
 	detours               *DetourConfig
 	sessionHistory        *encoding.SessionHistory
@@ -167,8 +167,8 @@ func (h *Handler) RemoveUser(ctx context.Context, email string) error {
 	return nil
 }
 
-func transferRequest(timer signal.ActivityUpdater, session *encoding.ServerSession, request *protocol.RequestHeader, input io.Reader, output ray.OutputStream) error {
-	defer output.Close()
+func transferRequest(timer signal.ActivityUpdater, session *encoding.ServerSession, request *protocol.RequestHeader, input io.Reader, output buf.Writer) error {
+	defer common.Close(output)
 
 	bodyReader := session.DecodeRequestBody(request, input)
 	if err := buf.Copy(bodyReader, output, buf.UpdateActivity(timer)); err != nil {
@@ -224,7 +224,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 		return newError("unable to set read deadline").Base(err).AtWarning()
 	}
 
-	reader := buf.NewBufferedReader(buf.NewReader(connection))
+	reader := &buf.BufferedReader{Reader: buf.NewReader(connection)}
 
 	session := encoding.NewServerSession(h.clients, h.sessionHistory)
 	request, err := session.DecodeRequestHeader(reader)
@@ -252,12 +252,14 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 		return newError("client is using insecure encryption: ", request.Security)
 	}
 
-	log.Record(&log.AccessMessage{
-		From:   connection.RemoteAddr(),
-		To:     request.Destination(),
-		Status: log.AccessAccepted,
-		Reason: "",
-	})
+	if request.Command != protocol.RequestCommandMux {
+		log.Record(&log.AccessMessage{
+			From:   connection.RemoteAddr(),
+			To:     request.Destination(),
+			Status: log.AccessAccepted,
+			Reason: "",
+		})
+	}
 
 	newError("received request for ", request.Destination()).WithContext(ctx).WriteToLog()
 
@@ -270,20 +272,17 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 
 	ctx, cancel := context.WithCancel(ctx)
 	timer := signal.CancelAfterInactivity(ctx, cancel, sessionPolicy.Timeouts.ConnectionIdle)
-	ray, err := dispatcher.Dispatch(ctx, request.Destination())
+	link, err := dispatcher.Dispatch(ctx, request.Destination())
 	if err != nil {
 		return newError("failed to dispatch request to ", request.Destination()).Base(err)
 	}
 
-	input := ray.InboundInput()
-	output := ray.InboundOutput()
-
-	requestDone := signal.ExecuteAsync(func() error {
+	requestDone := func() error {
 		defer timer.SetTimeout(sessionPolicy.Timeouts.DownlinkOnly)
-		return transferRequest(timer, session, request, reader, input)
-	})
+		return transferRequest(timer, session, request, reader, link.Writer)
+	}
 
-	responseDone := signal.ExecuteAsync(func() error {
+	responseDone := func() error {
 		writer := buf.NewBufferedWriter(buf.NewWriter(connection))
 		defer writer.Flush()
 		defer timer.SetTimeout(sessionPolicy.Timeouts.UplinkOnly)
@@ -291,12 +290,12 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 		response := &protocol.ResponseHeader{
 			Command: h.generateCommand(ctx, request),
 		}
-		return transferResponse(timer, session, request, response, output, writer)
-	})
+		return transferResponse(timer, session, request, response, link.Reader, writer)
+	}
 
-	if err := signal.ErrorOrFinish2(ctx, requestDone, responseDone); err != nil {
-		input.CloseError()
-		output.CloseError()
+	if err := signal.ExecuteParallel(ctx, requestDone, responseDone); err != nil {
+		pipe.CloseError(link.Reader)
+		pipe.CloseError(link.Writer)
 		return newError("connection ends").Base(err)
 	}
 

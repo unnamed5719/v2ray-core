@@ -1,4 +1,3 @@
-// Package buf provides a light-weight memory allocation mechanism.
 package buf
 
 import (
@@ -37,15 +36,8 @@ func (b *Buffer) Clear() {
 }
 
 // AppendBytes appends one or more bytes to the end of the buffer.
-func (b *Buffer) AppendBytes(bytes ...byte) int {
-	return b.Append(bytes)
-}
-
-// Append appends a byte array to the end of the buffer.
-func (b *Buffer) Append(data []byte) int {
-	nBytes := copy(b.v[b.end:], data)
-	b.end += int32(nBytes)
-	return nBytes
+func (b *Buffer) AppendBytes(bytes ...byte) (int, error) {
+	return b.Write(bytes)
 }
 
 // AppendSupplier appends the content of a BytesWriter to the buffer.
@@ -56,13 +48,13 @@ func (b *Buffer) AppendSupplier(writer Supplier) error {
 }
 
 // Byte returns the bytes at index.
-func (b *Buffer) Byte(index int) byte {
-	return b.v[b.start+int32(index)]
+func (b *Buffer) Byte(index int32) byte {
+	return b.v[b.start+index]
 }
 
 // SetByte sets the byte value at index.
-func (b *Buffer) SetByte(index int, value byte) {
-	b.v[b.start+int32(index)] = value
+func (b *Buffer) SetByte(index int32, value byte) {
+	b.v[b.start+index] = value
 }
 
 // Bytes returns the content bytes of this Buffer.
@@ -79,34 +71,34 @@ func (b *Buffer) Reset(writer Supplier) error {
 }
 
 // BytesRange returns a slice of this buffer with given from and to boundary.
-func (b *Buffer) BytesRange(from, to int) []byte {
+func (b *Buffer) BytesRange(from, to int32) []byte {
 	if from < 0 {
 		from += b.Len()
 	}
 	if to < 0 {
 		to += b.Len()
 	}
-	return b.v[b.start+int32(from) : b.start+int32(to)]
+	return b.v[b.start+from : b.start+to]
 }
 
 // BytesFrom returns a slice of this Buffer starting from the given position.
-func (b *Buffer) BytesFrom(from int) []byte {
+func (b *Buffer) BytesFrom(from int32) []byte {
 	if from < 0 {
 		from += b.Len()
 	}
-	return b.v[b.start+int32(from) : b.end]
+	return b.v[b.start+from : b.end]
 }
 
 // BytesTo returns a slice of this Buffer from start to the given position.
-func (b *Buffer) BytesTo(to int) []byte {
+func (b *Buffer) BytesTo(to int32) []byte {
 	if to < 0 {
 		to += b.Len()
 	}
-	return b.v[b.start : b.start+int32(to)]
+	return b.v[b.start : b.start+to]
 }
 
-// Slice cuts the buffer at the given position.
-func (b *Buffer) Slice(from, to int) {
+// Resize cuts the buffer at the given position.
+func (b *Buffer) Resize(from, to int32) {
 	if from < 0 {
 		from += b.Len()
 	}
@@ -116,24 +108,24 @@ func (b *Buffer) Slice(from, to int) {
 	if to < from {
 		panic("Invalid slice")
 	}
-	b.end = b.start + int32(to)
-	b.start += int32(from)
+	b.end = b.start + to
+	b.start += from
 }
 
-// SliceFrom cuts the buffer at the given position.
-func (b *Buffer) SliceFrom(from int) {
+// Advance cuts the buffer at the given position.
+func (b *Buffer) Advance(from int32) {
 	if from < 0 {
 		from += b.Len()
 	}
-	b.start += int32(from)
+	b.start += from
 }
 
 // Len returns the length of the buffer content.
-func (b *Buffer) Len() int {
+func (b *Buffer) Len() int32 {
 	if b == nil {
 		return 0
 	}
-	return int(b.end - b.start)
+	return b.end - b.start
 }
 
 // IsEmpty returns true if the buffer is empty.
@@ -159,7 +151,7 @@ func (b *Buffer) Read(data []byte) (int, error) {
 		return 0, io.EOF
 	}
 	nBytes := copy(data, b.v[b.start:b.end])
-	if nBytes == b.Len() {
+	if int32(nBytes) == b.Len() {
 		b.Clear()
 	} else {
 		b.start += int32(nBytes)
@@ -179,9 +171,9 @@ func New() *Buffer {
 	}
 }
 
-// NewSize creates and returns a buffer with 0 length and at least the given capacity.
-func NewSize(size uint32) *Buffer {
+// NewSize creates and returns a buffer with 0 length and at least the given capacity. Capacity must be positive.
+func NewSize(capacity int32) *Buffer {
 	return &Buffer{
-		v: newBytes(size),
+		v: newBytes(capacity),
 	}
 }

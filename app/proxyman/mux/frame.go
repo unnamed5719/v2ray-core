@@ -18,7 +18,8 @@ const (
 )
 
 const (
-	OptionData bitmask.Byte = 0x01
+	OptionData  bitmask.Byte = 0x01
+	OptionError bitmask.Byte = 0x02
 )
 
 type TargetNetwork byte
@@ -97,7 +98,7 @@ func ReadFrameFrom(b *buf.Buffer) (*FrameMetadata, error) {
 
 	if f.SessionStatus == SessionStatusNew {
 		network := TargetNetwork(b.Byte(4))
-		b.SliceFrom(5)
+		b.Advance(5)
 
 		addr, port, err := addrParser.ReadAddressPort(nil, b)
 		if err != nil {

@@ -11,6 +11,8 @@ type PeriodicTask struct {
 	Interval time.Duration
 	// Execute is the task function
 	Execute func() error
+	// OnFailure will be called when Execute returns non-nil error
+	OnError func(error)
 
 	access sync.Mutex
 	timer  *time.Timer
@@ -30,7 +32,9 @@ func (t *PeriodicTask) checkedExecute() error {
 	}
 
 	t.timer = time.AfterFunc(t.Interval, func() {
-		t.checkedExecute()
+		if err := t.checkedExecute(); err != nil && t.OnError != nil {
+			t.OnError(err)
+		}
 	})
 
 	return nil
@@ -50,7 +54,7 @@ func (t *PeriodicTask) Start() error {
 	return nil
 }
 
-// Close implements common.Runnable.
+// Close implements common.Closable.
 func (t *PeriodicTask) Close() error {
 	t.access.Lock()
 	defer t.access.Unlock()

@@ -52,6 +52,7 @@ func (p *Policy) overrideWith(another *Policy) {
 	}
 }
 
+// ToCorePolicy converts this Policy to core.Policy.
 func (p *Policy) ToCorePolicy() core.Policy {
 	var cp core.Policy
 	if p.Timeout != nil {
@@ -65,4 +66,14 @@ func (p *Policy) ToCorePolicy() core.Policy {
 		cp.Stats.UserDownlink = p.Stats.UserDownlink
 	}
 	return cp
+}
+
+// ToCorePolicy converts this SystemPolicy to core.SystemPolicy.
+func (p *SystemPolicy) ToCorePolicy() core.SystemPolicy {
+	return core.SystemPolicy{
+		Stats: core.SystemStatsPolicy{
+			InboundUplink:   p.Stats.InboundUplink,
+			InboundDownlink: p.Stats.InboundDownlink,
+		},
+	}
 }

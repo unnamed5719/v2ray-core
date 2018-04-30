@@ -15,7 +15,6 @@ import (
 	"v2ray.com/core/common/signal"
 	"v2ray.com/core/proxy"
 	"v2ray.com/core/transport/internet"
-	"v2ray.com/core/transport/ray"
 )
 
 // Handler handles Freedom connections.
@@ -65,7 +64,7 @@ func (h *Handler) resolveIP(ctx context.Context, domain string) net.Address {
 }
 
 // Process implements proxy.Outbound.
-func (h *Handler) Process(ctx context.Context, outboundRay ray.OutboundRay, dialer proxy.Dialer) error {
+func (h *Handler) Process(ctx context.Context, link *core.Link, dialer proxy.Dialer) error {
 	destination, _ := proxy.TargetFromContext(ctx)
 	if h.config.DestinationOverride != nil {
 		server := h.config.DestinationOverride.Server
@@ -77,8 +76,8 @@ func (h *Handler) Process(ctx context.Context, outboundRay ray.OutboundRay, dial
 	}
 	newError("opening connection to ", destination).WithContext(ctx).WriteToLog()
 
-	input := outboundRay.OutboundInput()
-	output := outboundRay.OutboundOutput()
+	input := link.Reader
+	output := link.Writer
 
 	if h.config.DomainStrategy == Config_USE_IP && destination.Address.Family().IsDomain() {
 		ip := h.resolveIP(ctx, destination.Address.Domain())
@@ -109,7 +108,7 @@ func (h *Handler) Process(ctx context.Context, outboundRay ray.OutboundRay, dial
 	ctx, cancel := context.WithCancel(ctx)
 	timer := signal.CancelAfterInactivity(ctx, cancel, h.policy().Timeouts.ConnectionIdle)
 
-	requestDone := signal.ExecuteAsync(func() error {
+	requestDone := func() error {
 		defer timer.SetTimeout(h.policy().Timeouts.DownlinkOnly)
 
 		var writer buf.Writer
@@ -123,9 +122,9 @@ func (h *Handler) Process(ctx context.Context, outboundRay ray.OutboundRay, dial
 		}
 
 		return nil
-	})
+	}
 
-	responseDone := signal.ExecuteAsync(func() error {
+	responseDone := func() error {
 		defer timer.SetTimeout(h.policy().Timeouts.UplinkOnly)
 
 		v2reader := buf.NewReader(conn)
@@ -134,11 +133,9 @@ func (h *Handler) Process(ctx context.Context, outboundRay ray.OutboundRay, dial
 		}
 
 		return nil
-	})
+	}
 
-	if err := signal.ErrorOrFinish2(ctx, requestDone, responseDone); err != nil {
-		input.CloseError()
-		output.CloseError()
+	if err := signal.ExecuteParallel(ctx, requestDone, responseDone); err != nil {
 		return newError("connection ends").Base(err)
 	}
 

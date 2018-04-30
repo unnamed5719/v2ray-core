@@ -26,10 +26,6 @@ const (
 	authPassword         = 0x02
 	authNoMatchingMethod = 0xFF
 
-	addrTypeIPv4   = 0x01
-	addrTypeIPv6   = 0x04
-	addrTypeDomain = 0x03
-
 	statusSuccess       = 0x00
 	statusCmdNotSupport = 0x07
 )
@@ -96,7 +92,7 @@ func (s *ServerSession) Handshake(reader io.Reader, writer io.Writer) (*protocol
 	}
 
 	if version == socks5Version {
-		nMethod := int(buffer.Byte(1))
+		nMethod := int32(buffer.Byte(1))
 		if err := buffer.AppendSupplier(buf.ReadFullFrom(reader, nMethod)); err != nil {
 			return nil, newError("failed to read auth methods").Base(err)
 		}
@@ -190,7 +186,7 @@ func readUsernamePassword(reader io.Reader) (string, string, error) {
 	if err := buffer.Reset(buf.ReadFullFrom(reader, 2)); err != nil {
 		return "", "", err
 	}
-	nUsername := int(buffer.Byte(1))
+	nUsername := int32(buffer.Byte(1))
 
 	if err := buffer.Reset(buf.ReadFullFrom(reader, nUsername)); err != nil {
 		return "", "", err
@@ -200,7 +196,7 @@ func readUsernamePassword(reader io.Reader) (string, string, error) {
 	if err := buffer.Reset(buf.ReadFullFrom(reader, 1)); err != nil {
 		return "", "", err
 	}
-	nPassword := int(buffer.Byte(0))
+	nPassword := int32(buffer.Byte(0))
 	if err := buffer.Reset(buf.ReadFullFrom(reader, nPassword)); err != nil {
 		return "", "", err
 	}
@@ -259,7 +255,7 @@ func writeSocks4Response(writer io.Writer, errCode byte, address net.Address, po
 
 	buffer.AppendBytes(0x00, errCode)
 	common.Must(buffer.AppendSupplier(serial.WriteUint16(port.Value())))
-	buffer.Append(address.IP())
+	buffer.Write(address.IP())
 	_, err := writer.Write(buffer.Bytes())
 	return err
 }
@@ -278,7 +274,7 @@ func DecodeUDPPacket(packet *buf.Buffer) (*protocol.RequestHeader, error) {
 		return nil, newError("discarding fragmented payload.")
 	}
 
-	packet.SliceFrom(3)
+	packet.Advance(3)
 
 	addr, port, err := addrParser.ReadAddressPort(nil, packet)
 	if err != nil {
@@ -296,7 +292,7 @@ func EncodeUDPPacket(request *protocol.RequestHeader, data []byte) (*buf.Buffer,
 		b.Release()
 		return nil, err
 	}
-	b.Append(data)
+	b.Write(data)
 	return b, nil
 }
 
@@ -362,9 +358,9 @@ func ClientHandshake(request *protocol.RequestHeader, reader io.Reader, writer i
 		account := rawAccount.(*Account)
 
 		b.AppendBytes(0x01, byte(len(account.Username)))
-		b.Append([]byte(account.Username))
+		b.Write([]byte(account.Username))
 		b.AppendBytes(byte(len(account.Password)))
-		b.Append([]byte(account.Password))
+		b.Write([]byte(account.Password))
 	}
 
 	if _, err := writer.Write(b.Bytes()); err != nil {

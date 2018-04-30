@@ -76,8 +76,8 @@ func (v *ChunkReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 	}
 	size += AuthSize
 
-	buffer := buf.NewSize(uint32(size))
-	if err := buffer.AppendSupplier(buf.ReadFullFrom(v.reader, int(size))); err != nil {
+	buffer := buf.NewSize(int32(size))
+	if err := buffer.AppendSupplier(buf.ReadFullFrom(v.reader, int32(size))); err != nil {
 		buffer.Release()
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (v *ChunkReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		buffer.Release()
 		return nil, newError("invalid auth")
 	}
-	buffer.SliceFrom(AuthSize)
+	buffer.Advance(AuthSize)
 
 	return buf.NewMultiBufferValue(buffer), nil
 }

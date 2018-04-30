@@ -12,7 +12,6 @@ import (
 	"v2ray.com/core/common/net"
 	"v2ray.com/core/common/protocol"
 	"v2ray.com/core/transport/internet"
-	"v2ray.com/core/transport/ray"
 )
 
 // An Inbound processes inbound connections.
@@ -27,7 +26,7 @@ type Inbound interface {
 // An Outbound process outbound connections.
 type Outbound interface {
 	// Process processes the given connection. The given dialer may be used to dial a system outbound connection.
-	Process(context.Context, ray.OutboundRay, Dialer) error
+	Process(context.Context, *core.Link, Dialer) error
 }
 
 // Dialer is used by OutboundHandler for creating outbound connections.
@@ -41,7 +40,7 @@ type UserManager interface {
 	// AddUser adds a new user.
 	AddUser(context.Context, *protocol.User) error
 
-	// RemoveUser removes an user by email.
+	// RemoveUser removes a user by email.
 	RemoveUser(context.Context, string) error
 }
 

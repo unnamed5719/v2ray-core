@@ -17,6 +17,16 @@ type StatManager interface {
 	GetCounter(string) StatCounter
 }
 
+// GetOrRegisterStatCounter tries to get the StatCounter first. If not exist, it then tries to create a new counter.
+func GetOrRegisterStatCounter(m StatManager, name string) (StatCounter, error) {
+	counter := m.GetCounter(name)
+	if counter != nil {
+		return counter, nil
+	}
+
+	return m.RegisterCounter(name)
+}
+
 type syncStatManager struct {
 	sync.RWMutex
 	StatManager
@@ -64,8 +74,14 @@ func (s *syncStatManager) GetCounter(name string) StatCounter {
 }
 
 func (s *syncStatManager) Set(m StatManager) {
+	if m == nil {
+		return
+	}
 	s.Lock()
 	defer s.Unlock()
 
+	if s.StatManager != nil {
+		s.StatManager.Close()
+	}
 	s.StatManager = m
 }

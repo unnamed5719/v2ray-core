@@ -15,6 +15,7 @@ import (
 	"v2ray.com/core/proxy"
 	"v2ray.com/core/transport/internet"
 	"v2ray.com/core/transport/internet/udp"
+	"v2ray.com/core/transport/pipe"
 )
 
 // Server is a SOCKS 5 proxy server
@@ -69,7 +70,7 @@ func (s *Server) processTCP(ctx context.Context, conn internet.Connection, dispa
 		newError("failed to set deadline").Base(err).WithContext(ctx).WriteToLog()
 	}
 
-	reader := buf.NewBufferedReader(buf.NewReader(conn))
+	reader := &buf.BufferedReader{Reader: buf.NewReader(conn)}
 
 	inboundDest, ok := proxy.InboundEntryPointFromContext(ctx)
 	if !ok {
@@ -122,48 +123,44 @@ func (s *Server) processTCP(ctx context.Context, conn internet.Connection, dispa
 func (*Server) handleUDP(c io.Reader) error {
 	// The TCP connection closes after this method returns. We need to wait until
 	// the client closes it.
-	_, err := io.Copy(buf.DiscardBytes, c)
-	return err
+	return common.Error2(io.Copy(buf.DiscardBytes, c))
 }
 
 func (s *Server) transport(ctx context.Context, reader io.Reader, writer io.Writer, dest net.Destination, dispatcher core.Dispatcher) error {
 	ctx, cancel := context.WithCancel(ctx)
 	timer := signal.CancelAfterInactivity(ctx, cancel, s.policy().Timeouts.ConnectionIdle)
 
-	ray, err := dispatcher.Dispatch(ctx, dest)
+	link, err := dispatcher.Dispatch(ctx, dest)
 	if err != nil {
 		return err
 	}
 
-	input := ray.InboundInput()
-	output := ray.InboundOutput()
-
-	requestDone := signal.ExecuteAsync(func() error {
+	requestDone := func() error {
 		defer timer.SetTimeout(s.policy().Timeouts.DownlinkOnly)
-		defer input.Close()
+		defer common.Close(link.Writer)
 
 		v2reader := buf.NewReader(reader)
-		if err := buf.Copy(v2reader, input, buf.UpdateActivity(timer)); err != nil {
+		if err := buf.Copy(v2reader, link.Writer, buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transport all TCP request").Base(err)
 		}
 
 		return nil
-	})
+	}
 
-	responseDone := signal.ExecuteAsync(func() error {
+	responseDone := func() error {
 		defer timer.SetTimeout(s.policy().Timeouts.UplinkOnly)
 
 		v2writer := buf.NewWriter(writer)
-		if err := buf.Copy(output, v2writer, buf.UpdateActivity(timer)); err != nil {
+		if err := buf.Copy(link.Reader, v2writer, buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transport all TCP response").Base(err)
 		}
 
 		return nil
-	})
+	}
 
-	if err := signal.ErrorOrFinish2(ctx, requestDone, responseDone); err != nil {
-		input.CloseError()
-		output.CloseError()
+	if err := signal.ExecuteParallel(ctx, requestDone, responseDone); err != nil {
+		pipe.CloseError(link.Reader)
+		pipe.CloseError(link.Writer)
 		return newError("connection ends").Base(err)
 	}
 

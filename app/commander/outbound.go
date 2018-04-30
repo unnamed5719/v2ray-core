@@ -2,13 +2,16 @@ package commander
 
 import (
 	"context"
-	"net"
 	"sync"
 
+	"v2ray.com/core"
+	"v2ray.com/core/common"
+	"v2ray.com/core/common/net"
 	"v2ray.com/core/common/signal"
-	"v2ray.com/core/transport/ray"
+	"v2ray.com/core/transport/pipe"
 )
 
+// OutboundListener is a net.Listener for listening gRPC connections.
 type OutboundListener struct {
 	buffer chan net.Conn
 	done   *signal.Done
@@ -17,29 +20,31 @@ type OutboundListener struct {
 func (l *OutboundListener) add(conn net.Conn) {
 	select {
 	case l.buffer <- conn:
-	case <-l.done.C():
-		conn.Close()
+	case <-l.done.Wait():
+		common.Ignore(conn.Close(), "We can do nothing if Close() returns error.")
 	default:
-		conn.Close()
+		common.Ignore(conn.Close(), "We can do nothing if Close() returns error.")
 	}
 }
 
+// Accept implements net.Listener.
 func (l *OutboundListener) Accept() (net.Conn, error) {
 	select {
-	case <-l.done.C():
+	case <-l.done.Wait():
 		return nil, newError("listen closed")
 	case c := <-l.buffer:
 		return c, nil
 	}
 }
 
+// Close implement net.Listener.
 func (l *OutboundListener) Close() error {
-	l.done.Close()
+	common.Must(l.done.Close())
 L:
 	for {
 		select {
 		case c := <-l.buffer:
-			c.Close()
+			common.Ignore(c.Close(), "We can do nothing if errored.")
 		default:
 			break L
 		}
@@ -47,6 +52,7 @@ L:
 	return nil
 }
 
+// Addr implements net.Listener.
 func (l *OutboundListener) Addr() net.Addr {
 	return &net.TCPAddr{
 		IP:   net.IP{0, 0, 0, 0},
@@ -54,46 +60,50 @@ func (l *OutboundListener) Addr() net.Addr {
 	}
 }
 
-type CommanderOutbound struct {
+// Outbound is a core.OutboundHandler that handles gRPC connections.
+type Outbound struct {
 	tag      string
 	listener *OutboundListener
 	access   sync.RWMutex
 	closed   bool
 }
 
-func (co *CommanderOutbound) Dispatch(ctx context.Context, r ray.OutboundRay) {
+// Dispatch implements core.OutboundHandler.
+func (co *Outbound) Dispatch(ctx context.Context, link *core.Link) {
 	co.access.RLock()
 
 	if co.closed {
-		r.OutboundInput().CloseError()
-		r.OutboundOutput().CloseError()
+		pipe.CloseError(link.Reader)
+		pipe.CloseError(link.Writer)
 		co.access.RUnlock()
 		return
 	}
 
 	closeSignal := signal.NewNotifier()
-	c := ray.NewConnection(r.OutboundInput(), r.OutboundOutput(), ray.ConnCloseSignal(closeSignal))
+	c := net.NewConnection(net.ConnectionInputMulti(link.Writer), net.ConnectionOutputMulti(link.Reader), net.ConnectionOnClose(signal.NotifyClose(closeSignal)))
 	co.listener.add(c)
 	co.access.RUnlock()
 	<-closeSignal.Wait()
 }
 
-func (co *CommanderOutbound) Tag() string {
+// Tag implements core.OutboundHandler.
+func (co *Outbound) Tag() string {
 	return co.tag
 }
 
-func (co *CommanderOutbound) Start() error {
+// Start implements common.Runnable.
+func (co *Outbound) Start() error {
 	co.access.Lock()
 	co.closed = false
 	co.access.Unlock()
 	return nil
 }
 
-func (co *CommanderOutbound) Close() error {
+// Close implements common.Closable.
+func (co *Outbound) Close() error {
 	co.access.Lock()
-	co.closed = true
-	co.listener.Close()
-	co.access.Unlock()
+	defer co.access.Unlock()
 
-	return nil
+	co.closed = true
+	return co.listener.Close()
 }

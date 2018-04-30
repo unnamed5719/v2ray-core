@@ -9,6 +9,7 @@ option java_multiple_files = true;
 import "v2ray.com/core/common/net/address.proto";
 import "v2ray.com/core/common/net/port.proto";
 import "v2ray.com/core/transport/internet/config.proto";
+import "v2ray.com/core/common/serial/typed_message.proto";
 
 message InboundConfig {
 }
@@ -51,7 +52,9 @@ enum KnownProtocols {
 }
 
 message ReceiverConfig {
+  // PortRange specifies the ports which the Receiver should listen on.
   v2ray.core.common.net.PortRange port_range = 1;
+  // Listen specifies the IP address that the Receiver should listen on.
   v2ray.core.common.net.IPOrDomain listen = 2;
   AllocationStrategy allocation_strategy = 3;
   v2ray.core.transport.internet.StreamConfig stream_settings = 4;
@@ -60,8 +63,14 @@ message ReceiverConfig {
   repeated KnownProtocols domain_override = 7;
 }
 
+message InboundHandlerConfig {
+  string tag = 1;
+  v2ray.core.common.serial.TypedMessage receiver_settings = 2;
+  v2ray.core.common.serial.TypedMessage proxy_settings = 3;
+}
+
 message OutboundConfig {
-  
+
 }
 
 message SenderConfig {

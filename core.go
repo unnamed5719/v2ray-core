@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	version  = "3.16"
+	version  = "3.22"
 	build    = "Custom"
 	codename = "die Commanderin"
-	intro    = "An unified platform for anti-censorship."
+	intro    = "A unified platform for anti-censorship."
 )
 
 // Version returns V2Ray's version as a string, in the form of "x.y.z" where x, y and z are numbers.

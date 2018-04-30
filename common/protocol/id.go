@@ -19,7 +19,7 @@ func DefaultIDHash(key []byte) hash.Hash {
 	return hmac.New(md5.New, key)
 }
 
-// The ID of en entity, in the form of an UUID.
+// The ID of en entity, in the form of a UUID.
 type ID struct {
 	uuid   uuid.UUID
 	cmdKey [IDBytesLen]byte
@@ -56,11 +56,25 @@ func NewID(uuid uuid.UUID) *ID {
 	return id
 }
 
+func nextId(u *uuid.UUID) uuid.UUID {
+	md5hash := md5.New()
+	common.Must2(md5hash.Write(u.Bytes()))
+	common.Must2(md5hash.Write([]byte("16167dc8-16b6-4e6d-b8bb-65dd68113a81")))
+	var newid uuid.UUID
+	for {
+		md5hash.Sum(newid[:0])
+		if !newid.Equals(u) {
+			return newid
+		}
+		common.Must2(md5hash.Write([]byte("533eff8a-4113-4b10-b5ce-0f5d76b98cd2")))
+	}
+}
+
 func NewAlterIDs(primary *ID, alterIDCount uint16) []*ID {
 	alterIDs := make([]*ID, alterIDCount)
 	prevID := primary.UUID()
 	for idx := range alterIDs {
-		newid := prevID.Next()
+		newid := nextId(&prevID)
 		// TODO: check duplicates
 		alterIDs[idx] = NewID(newid)
 		prevID = newid

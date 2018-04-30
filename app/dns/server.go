@@ -80,7 +80,7 @@ func (s *Server) Start() error {
 	return s.task.Start()
 }
 
-// Close implements common.Runnable.
+// Close implements common.Closable.
 func (s *Server) Close() error {
 	return s.task.Close()
 }
@@ -104,6 +104,10 @@ func (s *Server) cleanup() {
 		if r.Expired() {
 			delete(s.records, d)
 		}
+	}
+
+	if len(s.records) == 0 {
+		s.records = make(map[string]*DomainRecord)
 	}
 }
 
